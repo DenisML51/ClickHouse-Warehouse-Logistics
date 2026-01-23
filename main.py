@@ -194,7 +194,9 @@ class Application:
 
         display.console.print("Запуск симуляции...\n")
 
-        state = self.simulation.run_auto(max_steps=len(self.orders) + 100)
+        # max_steps = заявки * 20 + 1000 (достаточно для длинных цепочек перемещений)
+        max_steps = len(self.orders) * 20 + 1000
+        state = self.simulation.run_auto(max_steps=max_steps)
 
         # Выводим результат
         display.print_simulation_result(state)
@@ -258,7 +260,9 @@ class Application:
                 else:
                     display.print_warning("Неизвестная команда. Используйте Enter, l, i, a или q.")
 
-        state = self.simulation.run_interactive(interactive_callback, max_steps=len(self.orders) + 100)
+        # max_steps = заявки * 20 + 1000 (достаточно для длинных цепочек перемещений)
+        max_steps = len(self.orders) * 20 + 1000
+        state = self.simulation.run_interactive(interactive_callback, max_steps=max_steps)
 
         # Выводим итоговый результат
         display.print_simulation_result(state)

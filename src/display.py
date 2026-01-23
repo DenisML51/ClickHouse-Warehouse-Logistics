@@ -8,7 +8,7 @@ from rich.tree import Tree
 from rich.text import Text
 from rich import box
 
-from .models import Order, Movement, Warehouse, ActiveOrder
+from .models import Order, Movement, Warehouse, ActiveOrder, CompletedOrderInfo
 from .graph import WarehouseGraph
 from .simulation import SimulationState
 
@@ -113,6 +113,30 @@ def print_step_info(state: SimulationState, move: Optional[Movement], warehouses
     console.print()
     console.rule(f"[bold cyan]Шаг {state.current_step}[/bold cyan]")
 
+    # Информация о выполненных заявках на этом шаге
+    if hasattr(state, 'completed_this_step') and state.completed_this_step:
+        completed_table = Table(title="✓ Выполненные заявки на этом шаге", box=box.SIMPLE, style="green")
+        completed_table.add_column("Заявка #", style="cyan")
+        completed_table.add_column("Тип K", style="yellow")
+        completed_table.add_column("Кол-во T", style="magenta")
+        completed_table.add_column("Склад A", style="blue")
+        completed_table.add_column("Создана", style="dim")
+        completed_table.add_column("Выполнена", style="green")
+        completed_table.add_column("Ожидание", style="red")
+        
+        for info in state.completed_this_step:
+            completed_table.add_row(
+                str(info.order.order_id),
+                str(info.order.type_k),
+                str(info.order.quantity_t),
+                str(info.order.warehouse_a),
+                f"шаг {info.created_at_step}",
+                f"шаг {info.completed_at_step}",
+                f"{info.wait_steps} ходов" if info.wait_steps > 0 else "0 (сразу)"
+            )
+        
+        console.print(completed_table)
+
     # Информация о перемещении
     if move:
         console.print(Panel(
@@ -123,6 +147,29 @@ def print_step_info(state: SimulationState, move: Optional[Movement], warehouses
         ))
     else:
         console.print(Panel("[yellow]Перемещение не требуется[/yellow]", title="Действие", box=box.ROUNDED))
+
+    # Товары в пути
+    if hasattr(state, 'in_transit') and state.in_transit:
+        transit_table = Table(title="Товары в пути", box=box.SIMPLE)
+        transit_table.add_column("Откуда", style="cyan")
+        transit_table.add_column("Куда", style="green")
+        transit_table.add_column("Тип K", style="yellow")
+        transit_table.add_column("Кол-во", style="magenta")
+        transit_table.add_column("Прибытие", style="blue")
+
+        for item in state.in_transit[:5]:  # Показываем до 5 товаров в пути
+            transit_table.add_row(
+                str(item.from_warehouse),
+                str(item.to_warehouse),
+                str(item.type_k),
+                str(item.quantity),
+                f"шаг {item.arrival_step}"
+            )
+        
+        if len(state.in_transit) > 5:
+            transit_table.add_row("...", "...", "...", "...", "...")
+
+        console.print(transit_table)
 
     # Активные заявки
     if state.active_orders:
@@ -148,7 +195,8 @@ def print_step_info(state: SimulationState, move: Optional[Movement], warehouses
 
     # Статистика
     step_penalty = len(state.active_orders)
-    console.print(f"[red]Штраф за шаг: {step_penalty}[/red] | [yellow]Общий штраф: {state.total_penalty}[/yellow] | [cyan]Стоимость: {state.total_move_cost:,.2f}[/cyan]")
+    in_transit_count = len(state.in_transit) if hasattr(state, 'in_transit') else 0
+    console.print(f"[red]Штраф за шаг: {step_penalty}[/red] | [yellow]Общий штраф: {state.total_penalty}[/yellow] | [cyan]В пути: {in_transit_count}[/cyan]")
 
 
 def print_warehouse_logs(warehouses: Dict[int, Warehouse], last_n: int = 5) -> None:
@@ -165,37 +213,161 @@ def print_warehouse_logs(warehouses: Dict[int, Warehouse], last_n: int = 5) -> N
 
 
 def print_simulation_result(state: SimulationState) -> None:
-    """Вывести итоговый результат симуляции."""
+    """Вывести итоговый результат симуляции с полной статистикой."""
     console.print()
     
-    # Формируем текст результата
+    # === Статистика по выполненным заявкам ===
+    total_wait = 0
+    instant_completed = 0
+    max_wait = 0
+    
+    if state.completed_orders:
+        for info in state.completed_orders:
+            total_wait += info.wait_steps
+            if info.wait_steps == 0:
+                instant_completed += 1
+            if info.wait_steps > max_wait:
+                max_wait = info.wait_steps
+        avg_wait = total_wait / len(state.completed_orders)
+    else:
+        avg_wait = 0
+    
+    # === Время выполнения ===
+    exec_time = state.end_time - state.start_time if hasattr(state, 'end_time') and state.end_time > 0 else 0
+    
+    # === Основной результат ===
+    total_orders = len(state.completed_orders) + len(state.active_orders)
+    completion_rate = len(state.completed_orders) / total_orders * 100 if total_orders > 0 else 0
+    
     result_text = (
-        f"[bold]Симуляция завершена![/bold]\n\n"
+        f"[bold green]СИМУЛЯЦИЯ ЗАВЕРШЕНА[/bold green]\n\n"
+        f"[cyan]--- Основные показатели ---[/cyan]\n"
         f"Всего шагов: {state.current_step}\n"
-        f"Выполнено заявок: {len(state.completed_orders)}\n"
-        f"Невыполненных заявок: {len(state.active_orders)}\n"
+        f"Выполнено заявок: {len(state.completed_orders)}/{total_orders} ({completion_rate:.1f}%)\n"
+        f"Невыполненных: {len(state.active_orders)}\n"
+        f"[bold red]ОБЩИЙ ШТРАФ: {state.total_penalty}[/bold red]\n"
     )
     
-    # Добавляем информацию о невыполнимых заявках, если есть
-    if hasattr(state, 'unfulfillable_orders') and state.unfulfillable_orders:
-        result_text += f"[red]Невыполнимых заявок (нет товара): {len(state.unfulfillable_orders)}[/red]\n"
+    # === Сравнение с теорией ===
+    if hasattr(state, 'theoretical_min_penalty'):
+        theory_min = state.theoretical_min_penalty
+        if theory_min > 0:
+            ratio = state.total_penalty / theory_min
+            result_text += (
+                f"\n[cyan]--- Сравнение с теорией ---[/cyan]\n"
+                f"Теоретич. минимум (нижняя граница): {theory_min}\n"
+                f"Реальный штраф: {state.total_penalty}\n"
+                f"Соотношение: {ratio:.1f}x (чем ближе к 1, тем лучше)\n"
+            )
+        else:
+            result_text += f"\n[green]Теоретич. минимум: 0 (идеальный случай)[/green]\n"
+    
+    # === Статистика ожидания ===
+    if state.completed_orders:
+        result_text += (
+            f"\n[cyan]--- Статистика ожидания ---[/cyan]\n"
+            f"Выполнено сразу (0 ходов): {instant_completed} ({instant_completed/len(state.completed_orders)*100:.1f}%)\n"
+            f"Среднее ожидание: {avg_wait:.1f} ходов\n"
+            f"Макс. ожидание: {max_wait} ходов\n"
+        )
+    
+    # === Статистика перемещений ===
+    total_items = state.total_items_moved if hasattr(state, 'total_items_moved') else 0
+    result_text += (
+        f"\n[cyan]--- Статистика перемещений ---[/cyan]\n"
+        f"Всего операций: {len(state.movements_history)}\n"
+        f"Перемещено товаров: {total_items:,}\n"
+        f"Стоимость перемещений: {state.total_move_cost:,.2f}\n"
+    )
+    
+    # Распределение по типам
+    if hasattr(state, 'moves_by_type') and state.moves_by_type:
+        types_str = ", ".join([f"T{k}:{v}" for k, v in sorted(state.moves_by_type.items())[:5]])
+        if len(state.moves_by_type) > 5:
+            types_str += "..."
+        result_text += f"По типам: {types_str}\n"
+    
+    # === Производительность ===
+    if exec_time > 0:
+        steps_per_sec = state.current_step / exec_time
+        result_text += (
+            f"\n[cyan]--- Производительность ---[/cyan]\n"
+            f"Время выполнения: {exec_time:.2f} сек\n"
+            f"Скорость: {steps_per_sec:.0f} шагов/сек\n"
+        )
+    
+    # === Сложность алгоритма ===
+    n_warehouses = len(set(m.from_warehouse for m in state.movements_history) | 
+                      set(m.to_warehouse for m in state.movements_history)) if state.movements_history else 0
+    n_types = len(state.moves_by_type) if hasattr(state, 'moves_by_type') else 0
     
     result_text += (
-        f"Всего перемещений: {len(state.movements_history)}\n"
-        f"[cyan]Стоимость перемещений: {state.total_move_cost:,.2f}[/cyan]\n"
-        f"[bold red]ОБЩИЙ ШТРАФ: {state.total_penalty}[/bold red]"
+        f"\n[cyan]--- Сложность ---[/cyan]\n"
+        f"O(S * N * K) где S={state.current_step}, N~{n_warehouses}, K~{n_types}\n"
+        f"Эвристический алгоритм (полиномиальное время)\n"
     )
     
-    # Предупреждение о зацикливании
+    # === Предупреждения ===
+    if hasattr(state, 'unfulfillable_orders') and state.unfulfillable_orders:
+        result_text += f"\n[red]! Невыполнимых заявок (нет товара): {len(state.unfulfillable_orders)}[/red]\n"
+    
+    if hasattr(state, 'in_transit') and state.in_transit:
+        result_text += f"[yellow]! Товаров в пути: {len(state.in_transit)}[/yellow]\n"
+    
     if hasattr(state, 'steps_without_progress') and state.steps_without_progress > 100:
-        result_text += f"\n[yellow]⚠ Шагов без прогресса: {state.steps_without_progress}[/yellow]"
+        result_text += f"[yellow]! Шагов без прогресса: {state.steps_without_progress}[/yellow]\n"
+    
+    # === Оценка эффективности ===
+    if completion_rate == 100 and state.total_penalty == 0:
+        efficiency = "[bold green]ИДЕАЛЬНО[/bold green] - все заявки выполнены без штрафа"
+    elif completion_rate == 100:
+        efficiency = "[green]ОТЛИЧНО[/green] - все заявки выполнены"
+    elif completion_rate >= 90:
+        efficiency = "[yellow]ХОРОШО[/yellow] - большинство заявок выполнено"
+    else:
+        efficiency = "[red]ТРЕБУЕТ УЛУЧШЕНИЯ[/red]"
+    
+    result_text += f"\n[bold]Оценка: {efficiency}[/bold]"
     
     console.print(Panel(
         result_text,
-        title="Результат",
-        style="green" if state.total_penalty == 0 else "yellow",
+        title="ИТОГОВЫЙ ОТЧЁТ",
+        style="green" if state.total_penalty == 0 else "cyan",
         box=box.DOUBLE
     ))
+    
+    # Таблица выполненных заявок
+    if state.completed_orders:
+        print_completed_orders_table(state.completed_orders)
+
+
+def print_completed_orders_table(completed_orders: List, limit: int = 15) -> None:
+    """Вывести таблицу выполненных заявок."""
+    table = Table(title=f"Выполненные заявки (первые {min(limit, len(completed_orders))} из {len(completed_orders)})", box=box.ROUNDED)
+    table.add_column("Заявка #", style="cyan")
+    table.add_column("Тип K", style="green")
+    table.add_column("Кол-во T", style="yellow")
+    table.add_column("Склад A", style="magenta")
+    table.add_column("Создана", style="dim")
+    table.add_column("Выполнена", style="blue")
+    table.add_column("Ожидание", style="red")
+
+    for info in completed_orders[:limit]:
+        wait_str = f"{info.wait_steps} ходов" if info.wait_steps > 0 else "[green]сразу[/green]"
+        table.add_row(
+            str(info.order.order_id),
+            str(info.order.type_k),
+            str(info.order.quantity_t),
+            str(info.order.warehouse_a),
+            f"шаг {info.created_at_step}",
+            f"шаг {info.completed_at_step}",
+            wait_str
+        )
+
+    if len(completed_orders) > limit:
+        table.add_row("...", "...", "...", "...", "...", "...", "...")
+
+    console.print(table)
 
 
 def print_movements_table(movements: List[Movement], limit: int = 20) -> None:

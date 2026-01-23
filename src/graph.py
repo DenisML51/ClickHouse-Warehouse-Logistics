@@ -143,3 +143,22 @@ class WarehouseGraph:
 
         return path[1]  # Следующая вершина после start
 
+    def get_edge_weight(self, from_id: int, to_id: int) -> int:
+        """
+        Получить вес ребра между двумя вершинами.
+        По условию задачи: вес ребра определяет время перемещения между складами.
+        
+        Returns:
+            Вес ребра или 1 по умолчанию (если ребро не найдено, но склады соседние).
+        """
+        neighbors = self.adjacency.get(from_id, [])
+        for neighbor, weight in neighbors:
+            if neighbor == to_id:
+                return weight
+        return 1  # Значение по умолчанию
+
+    def are_neighbors(self, node1: int, node2: int) -> bool:
+        """Проверить, являются ли два склада соседними (связаны ребром)."""
+        neighbors = self.adjacency.get(node1, [])
+        return any(neighbor == node2 for neighbor, _ in neighbors)
+

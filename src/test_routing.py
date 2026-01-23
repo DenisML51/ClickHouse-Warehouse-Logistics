@@ -2,10 +2,15 @@
 """
 Test script for step-by-step routing through intermediate warehouses.
 Run: py -m src.test_routing
+
+По условию задачи:
+- Перемещение возможно только между СОСЕДНИМИ складами
+- Время перемещения = move_time типа товара * вес ребра
+- За 1 действие можно перемещать товары только 1-го типа
 """
 
 from src.graph import WarehouseGraph
-from src.models import Warehouse, Order, Edge
+from src.models import Warehouse, Order, Edge, ObjectType, CompletedOrderInfo
 from src.solver import Solver, PredictiveSolver
 from src.simulation import Simulation
 
@@ -15,7 +20,10 @@ def test_chain_routing():
     Test: goods must pass through intermediate warehouses.
     Graph: 1 - 2 - 3 - 4 - 5 (chain)
     Goods at warehouse 1, order at warehouse 5.
-    Expected: goods travel 1 -> 2 -> 3 -> 4 -> 5
+    
+    По условию: товар проходит через каждый склад на пути.
+    При move_time=1 и weight=1 каждое перемещение занимает 1 ход.
+    Путь 1->2->3->4->5 = 4 перемещения.
     """
     print("=" * 60)
     print("TEST: Movement through intermediate warehouses (chain)")
@@ -52,8 +60,12 @@ def test_chain_routing():
     # Order: take 50 items of type 1 from warehouse 5
     orders = [Order(order_id=1, type_k=1, quantity_t=50, warehouse_a=5)]
     
+    # Object types with move_time=1
+    object_types = [ObjectType(type_id=1, move_time=1, move_cost=10.0, loss_value=100.0)]
+    
     # Create simulation
-    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders, solver_type="predictive")
+    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders, 
+                     object_types=object_types, solver_type="predictive")
     
     print("\nInitial state:")
     for wh_id, wh in warehouses.items():
@@ -61,7 +73,7 @@ def test_chain_routing():
     
     # Run step by step
     print("\nStep-by-step execution:")
-    max_steps = 20
+    max_steps = 30
     for step_num in range(max_steps):
         penalty, move = sim.step()
         
@@ -74,7 +86,8 @@ def test_chain_routing():
         # Show warehouse state
         inv_str = ", ".join([f"WH{wh_id}: {wh.get_quantity(1)}" 
                             for wh_id, wh in sorted(warehouses.items())])
-        print(f"    Inventory (type 1): {inv_str}")
+        in_transit_str = f", In transit: {len(sim.state.in_transit)}" if sim.state.in_transit else ""
+        print(f"    Inventory (type 1): {inv_str}{in_transit_str}")
         print(f"    Active orders: {len(sim.state.active_orders)}, Penalty: {sim.state.total_penalty}")
         
         if sim.state.finished:
@@ -87,9 +100,14 @@ def test_chain_routing():
     print(f"  Total penalty: {sim.state.total_penalty}")
     print(f"  Movements: {len(sim.state.movements_history)}")
     
+    # Вывод информации о выполненных заявках
+    if sim.state.completed_orders:
+        print(f"\nCompleted orders details:")
+        for info in sim.state.completed_orders:
+            print(f"  {info}")
+    
     # Check result
     assert len(sim.state.completed_orders) == 1, "Order should be completed"
-    assert warehouses[5].get_quantity(1) >= 0, "Warehouse 5 should have items or 0"
     
     print("\n[OK] TEST PASSED!")
     return True
@@ -130,14 +148,19 @@ def test_star_routing():
     # Order at warehouse 3
     orders = [Order(order_id=1, type_k=1, quantity_t=30, warehouse_a=3)]
     
+    # Object types
+    object_types = [ObjectType(type_id=1, move_time=1, move_cost=10.0, loss_value=100.0)]
+    
     # Simulation
-    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders, solver_type="predictive")
+    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders,
+                     object_types=object_types, solver_type="predictive")
     
     print("\nStep-by-step execution:")
-    for _ in range(10):
+    for _ in range(20):
         penalty, move = sim.step()
         if move:
-            print(f"  Step {sim.state.current_step}: {move.from_warehouse} -> {move.to_warehouse}")
+            print(f"  Step {sim.state.current_step}: {move.from_warehouse} -> {move.to_warehouse}, "
+                  f"in transit: {len(sim.state.in_transit)}")
         if sim.state.finished:
             break
     
@@ -179,13 +202,18 @@ def test_no_direct_connection():
     
     orders = [Order(order_id=1, type_k=1, quantity_t=25, warehouse_a=6)]
     
-    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders, solver_type="predictive")
+    # Object types
+    object_types = [ObjectType(type_id=1, move_time=1, move_cost=10.0, loss_value=100.0)]
+    
+    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders,
+                     object_types=object_types, solver_type="predictive")
     
     print("\nStep-by-step execution:")
-    for _ in range(15):
+    for _ in range(25):
         penalty, move = sim.step()
         if move:
-            print(f"  Step {sim.state.current_step}: {move.from_warehouse} -> {move.to_warehouse}")
+            print(f"  Step {sim.state.current_step}: {move.from_warehouse} -> {move.to_warehouse}, "
+                  f"in transit: {len(sim.state.in_transit)}")
         if sim.state.finished:
             break
     
@@ -198,6 +226,7 @@ def test_no_direct_connection():
 def test_multiple_orders_same_destination():
     """
     Test: multiple orders to the same warehouse.
+    По условию: за 1 действие можно перемещать товары только 1-го типа.
     """
     print("\n" + "=" * 60)
     print("TEST: Multiple orders to the same warehouse")
@@ -226,12 +255,71 @@ def test_multiple_orders_same_destination():
         Order(order_id=2, type_k=2, quantity_t=40, warehouse_a=3),
     ]
     
-    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders, solver_type="predictive")
+    # Object types
+    object_types = [
+        ObjectType(type_id=1, move_time=1, move_cost=10.0, loss_value=100.0),
+        ObjectType(type_id=2, move_time=1, move_cost=15.0, loss_value=150.0),
+    ]
     
-    state = sim.run_auto(max_steps=50)
+    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders,
+                     object_types=object_types, solver_type="predictive")
+    
+    state = sim.run_auto(max_steps=100)
     
     print(f"Result: penalty = {state.total_penalty}, completed = {len(state.completed_orders)}/{len(orders)}")
     assert len(state.completed_orders) == 2, "Both orders should be completed"
+    print("[OK] TEST PASSED!")
+    return True
+
+
+def test_move_time_effect():
+    """
+    Test: verify that move_time affects delivery time.
+    По условию: время перемещения = move_time * вес_ребра.
+    """
+    print("\n" + "=" * 60)
+    print("TEST: Move time affects delivery")
+    print("=" * 60)
+    
+    graph = WarehouseGraph()
+    edges = [Edge(from_id=1, to_id=2, weight=2)]  # вес ребра = 2
+    graph.load_from_edges(edges)
+    
+    warehouses = {
+        1: Warehouse(id=1, name="Warehouse 1"),
+        2: Warehouse(id=2, name="Warehouse 2"),
+    }
+    warehouses[1].add_item(type_k=1, quantity=100)
+    
+    orders = [Order(order_id=1, type_k=1, quantity_t=50, warehouse_a=2)]
+    
+    # move_time = 2, weight = 2, итого время = 4 хода
+    object_types = [ObjectType(type_id=1, move_time=2, move_cost=10.0, loss_value=100.0)]
+    
+    sim = Simulation(graph=graph, warehouses=warehouses, orders=orders,
+                     object_types=object_types, solver_type="predictive")
+    
+    print("\nStep-by-step execution (move_time=2, edge_weight=2, expected transit time=4):")
+    for step in range(15):
+        penalty, move = sim.step()
+        
+        in_transit_info = ""
+        if sim.state.in_transit:
+            item = sim.state.in_transit[0]
+            in_transit_info = f" [In transit: arrival at step {item.arrival_step}]"
+        
+        if move:
+            print(f"  Step {sim.state.current_step}: {move.from_warehouse} -> {move.to_warehouse}{in_transit_info}")
+        else:
+            print(f"  Step {sim.state.current_step}: waiting{in_transit_info}")
+        
+        print(f"    WH1: {warehouses[1].get_quantity(1)}, WH2: {warehouses[2].get_quantity(1)}")
+        
+        if sim.state.finished:
+            break
+    
+    print(f"\nResult: penalty = {sim.state.total_penalty}, completed = {len(sim.state.completed_orders)}")
+    assert len(sim.state.completed_orders) == 1, "Order should be completed"
     print("[OK] TEST PASSED!")
     return True
 
@@ -246,6 +334,7 @@ if __name__ == "__main__":
         all_passed &= test_star_routing()
         all_passed &= test_no_direct_connection()
         all_passed &= test_multiple_orders_same_destination()
+        all_passed &= test_move_time_effect()
         
         print("\n" + "=" * 60)
         if all_passed:

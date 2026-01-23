@@ -89,3 +89,39 @@ class ActiveOrder:
     created_at_step: int
     penalty_accumulated: int = 0
 
+
+@dataclass
+class CompletedOrderInfo:
+    """Информация о выполненной заявке."""
+    order: Order
+    created_at_step: int      # На каком шаге заявка появилась
+    completed_at_step: int    # На каком шаге выполнена
+    wait_steps: int           # Сколько ходов ждала (штраф накопленный)
+    
+    def __str__(self) -> str:
+        return (f"Заявка #{self.order.order_id}: тип {self.order.type_k}, "
+                f"кол-во {self.order.quantity_t}, склад {self.order.warehouse_a} | "
+                f"создана: шаг {self.created_at_step}, выполнена: шаг {self.completed_at_step}, "
+                f"ожидание: {self.wait_steps} ходов")
+
+
+@dataclass
+class InTransitItem:
+    """
+    Товар в пути между складами.
+    
+    По условию задачи: у каждого объекта есть время перемещения,
+    и перемещение по ребру графа также занимает время (вес ребра).
+    Общее время = move_time типа товара * вес ребра.
+    """
+    from_warehouse: int  # Откуда отправлен
+    to_warehouse: int    # Куда направлен
+    type_k: int          # Тип товара
+    quantity: int        # Количество
+    departure_step: int  # Шаг отправления
+    arrival_step: int    # Шаг прибытия (когда товар станет доступен)
+    
+    def is_arrived(self, current_step: int) -> bool:
+        """Проверить, прибыл ли товар."""
+        return current_step >= self.arrival_step
+

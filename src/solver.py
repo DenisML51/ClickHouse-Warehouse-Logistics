@@ -1,7 +1,8 @@
 """Алгоритм оптимизации перемещений (Solver)."""
 
 from typing import Dict, List, Optional, Tuple, Set
-from .models import Order, Movement, Warehouse, ActiveOrder
+from collections import defaultdict
+from .models import Order, Movement, Warehouse, ActiveOrder, InTransitItem
 from .graph import WarehouseGraph
 
 
@@ -9,12 +10,18 @@ class Solver:
     """
     Алгоритм принятия решений о перемещениях.
     
+    По условию задачи:
+    1. За 1 действие можно перемещать товары только 1-го типа (одного k).
+    2. Перемещение возможно только между соседними складами (по рёбрам графа).
+    3. Перемещение занимает время = move_time типа товара * вес ребра.
+    4. Цель — минимизировать штрафы (количество невыполненных заявок).
+    
     Стратегия:
-    1. Приоритет — выполнение текущих активных заявок.
+    1. Приоритет — выполнение текущих активных заявок (старые важнее).
     2. Если активная заявка не может быть выполнена — везём товар ближе.
     3. Если текущий ход "свободен" — готовимся к будущим заявкам.
     4. При выборе учитывается время перемещения товара (move_time).
-    5. Товары перемещаются пошагово через промежуточные склады.
+    5. Чередование типов товаров для предотвращения "голодания".
     """
 
     def __init__(self, graph: WarehouseGraph, warehouses: Dict[int, Warehouse],
@@ -23,90 +30,104 @@ class Solver:
         self.warehouses = warehouses
         self.all_orders = all_orders
         self.move_times = move_times or {}  # {type_id: move_time}
-        
-        # Отслеживание активных перемещений: {(target_wh, type_k): (current_wh, quantity)}
-        # Нужно для продолжения перемещения товара к цели через промежуточные склады
-        self.active_deliveries: Dict[Tuple[int, int], Tuple[int, int]] = {}
+        self._last_moved_type: Optional[int] = None  # Для чередования типов
+        self._type_move_counts: Dict[int, int] = {}  # Счётчик подряд перемещений по типам
 
-    def find_best_move(self, active_orders: List[ActiveOrder], current_step: int) -> Optional[Movement]:
+    def find_best_move(self, active_orders: List[ActiveOrder], current_step: int,
+                       in_transit: List[InTransitItem] = None) -> Optional[Movement]:
         """
         Найти лучшее действие на текущем шаге.
         
-        Логика:
-        1. Сначала продолжаем активные доставки (товары в пути к цели).
-        2. Смотрим активные заявки (невыполненные).
-        3. Для самой "горячей" заявки (самая старая + быстрее доставить) ищем, откуда везти товар.
-        4. Если нет активных заявок или всё на месте — смотрим в будущее.
-        """
+        По условию задачи:
+        - За 1 действие можно перемещать товары только 1-го типа
+        - Перемещение только между соседними складами
         
-        # Сначала проверяем активные доставки - продолжаем перемещение товаров к цели
-        move = self._continue_active_delivery(current_step)
+        Args:
+            active_orders: список активных (невыполненных) заявок
+            current_step: номер текущего хода
+            in_transit: список товаров в пути (для учёта при планировании)
+        
+        Логика:
+        1. Группируем заявки по типам товаров.
+        2. Приоритизируем типы, для которых НЕТ товара в пути (борьба с голоданием).
+        3. Для каждого типа ищем перемещение.
+        4. Чередуем типы, чтобы не застревать на одном.
+        """
+        self._in_transit = in_transit or []
+        
+        if not active_orders:
+            # Нет активных заявок — проактивные перемещения
+            return self._find_proactive_move(current_step)
+        
+        # Группируем заявки по типам
+        orders_by_type: Dict[int, List[ActiveOrder]] = {}
+        for active in active_orders:
+            type_k = active.order.type_k
+            if type_k not in orders_by_type:
+                orders_by_type[type_k] = []
+            orders_by_type[type_k].append(active)
+        
+        # Подсчитываем товары в пути по типам
+        in_transit_by_type: Dict[int, int] = {}
+        for item in self._in_transit:
+            in_transit_by_type[item.type_k] = in_transit_by_type.get(item.type_k, 0) + item.quantity
+        
+        # Приоритизируем типы:
+        # 1) Типы БЕЗ товара в пути (голодающие) — первые
+        # 2) Типы с наибольшим накопленным штрафом
+        # 3) Типы, которые давно не перемещались
+        def type_priority(type_k: int) -> Tuple[int, int, int]:
+            in_transit = in_transit_by_type.get(type_k, 0)
+            # Суммарный штраф по заявкам этого типа
+            total_penalty = sum(a.penalty_accumulated for a in orders_by_type[type_k])
+            # Сколько раз подряд перемещали этот тип
+            consecutive_moves = self._type_move_counts.get(type_k, 0)
+            # Приоритет: (нет в пути?, -штраф, consecutive)
+            return (0 if in_transit == 0 else 1, -total_penalty, consecutive_moves)
+        
+        sorted_types = sorted(orders_by_type.keys(), key=type_priority)
+        
+        # Попытка 1: Найти перемещение для активных заявок (по приоритету типов)
+        for type_k in sorted_types:
+            # Сортируем заявки этого типа по старшинству
+            type_orders = sorted(orders_by_type[type_k], key=lambda a: a.created_at_step)
+            
+            for active in type_orders:
+                move = self._find_move_for_order(active.order, current_step)
+                if move:
+                    self._update_type_counts(move.type_k)
+                    return move
+        
+        # Попытка 2: Проактивные перемещения для будущих заявок
+        move = self._find_proactive_move(current_step)
         if move:
+            self._update_type_counts(move.type_k)
             return move
         
-        # Сортируем активные заявки по приоритету:
-        # 1) Старые важнее (больше штраф накопился)
-        # 2) При равном возрасте — товары с меньшим move_time (быстрее доставить)
-        def order_priority(active: ActiveOrder) -> Tuple[int, int]:
-            move_time = self.move_times.get(active.order.type_k, 1)
-            return (active.created_at_step, move_time)
-        
-        sorted_orders = sorted(active_orders, key=order_priority)
-        
-        for active in sorted_orders:
-            move = self._find_move_for_order(active.order, current_step)
-            if move:
-                return move
-        
-        # Если нет срочных задач, смотрим вперёд
-        return self._find_proactive_move(current_step)
-    
-    def _continue_active_delivery(self, current_step: int) -> Optional[Movement]:
-        """
-        Продолжить активную доставку - переместить товар на следующий склад на пути к цели.
-        Это гарантирует, что товар дойдёт до цели через промежуточные склады.
-        """
-        # Очищаем завершённые доставки
-        completed = []
-        for (target_wh, type_k), (current_wh, qty) in self.active_deliveries.items():
-            if current_wh == target_wh:
-                completed.append((target_wh, type_k))
-        for key in completed:
-            del self.active_deliveries[key]
-        
-        # Продолжаем первую активную доставку
-        for (target_wh, type_k), (current_wh, qty) in list(self.active_deliveries.items()):
-            if current_wh == target_wh:
-                continue  # Уже доставлено
-                
-            # Проверяем, что товар ещё на текущем складе
-            warehouse = self.warehouses.get(current_wh)
-            if not warehouse or warehouse.get_quantity(type_k) < qty:
-                # Товар уже забрали или переместили - удаляем доставку
-                del self.active_deliveries[(target_wh, type_k)]
-                continue
-            
-            # Получаем следующий шаг пути
-            next_hop = self.graph.get_next_hop(current_wh, target_wh)
-            if next_hop is None:
-                del self.active_deliveries[(target_wh, type_k)]
-                continue
-            
-            # Обновляем позицию в активной доставке
-            self.active_deliveries[(target_wh, type_k)] = (next_hop, qty)
-            
-            return Movement(
-                step=current_step,
-                from_warehouse=current_wh,
-                to_warehouse=next_hop,
-                type_k=type_k,
-                quantity=qty
-            )
+        # Попытка 3: Продвинуть товары на промежуточных складах
+        move = self._find_intermediate_move(active_orders, current_step)
+        if move:
+            self._update_type_counts(move.type_k)
+            return move
         
         return None
+    
+    def _update_type_counts(self, type_k: int) -> None:
+        """Обновить счётчики перемещений по типам."""
+        # Сбрасываем счётчики других типов, увеличиваем для текущего
+        for t in list(self._type_move_counts.keys()):
+            if t != type_k:
+                self._type_move_counts[t] = 0
+        self._type_move_counts[type_k] = self._type_move_counts.get(type_k, 0) + 1
+        self._last_moved_type = type_k
 
     def _find_move_for_order(self, order: Order, current_step: int) -> Optional[Movement]:
-        """Найти перемещение для конкретной заявки."""
+        """
+        Найти перемещение для конкретной заявки.
+        
+        По условию: перемещение возможно только между соседними складами.
+        Если товар далеко — нужно несколько ходов для доставки.
+        """
         target_wh = order.warehouse_a
         type_k = order.type_k
         needed = order.quantity_t
@@ -118,37 +139,39 @@ class Solver:
         # Сколько уже есть на целевом складе?
         available = target_warehouse.get_quantity(type_k)
         
+        # Сколько уже в пути к этому складу?
+        in_transit_to_target = sum(
+            item.quantity for item in self._in_transit 
+            if item.to_warehouse == target_wh and item.type_k == type_k
+        )
+        
         if available >= needed:
             # Товар уже на месте, заявка может быть выполнена
             return None
         
-        # Нужно довезти ещё: needed - available
-        to_deliver = needed - available
-        
-        # Проверяем, не идёт ли уже доставка для этой цели
-        if (target_wh, type_k) in self.active_deliveries:
-            # Уже есть активная доставка, не создаём новую
+        # Учитываем товар в пути
+        expected_available = available + in_transit_to_target
+        if expected_available >= needed:
+            # Товар уже едет, ждём
             return None
         
-        # Ищем склады, где есть нужный товар
+        # Нужно довезти ещё
+        to_deliver = needed - expected_available
+        
+        # Ищем склады, где есть нужный товар (не на целевом складе)
         warehouses_with_item = []
         for wh_id, wh in self.warehouses.items():
             if wh_id != target_wh and wh.get_quantity(type_k) > 0:
                 warehouses_with_item.append(wh_id)
         
         if not warehouses_with_item:
-            # Товара нигде нет - невозможно выполнить
+            # Товара нигде нет на складах (возможно, весь в пути)
             return None
         
         # Находим ближайший склад с товаром
         source_wh, distance = self.graph.find_nearest_with_item(target_wh, warehouses_with_item)
         
-        if source_wh is None:
-            return None
-        
-        # Проверяем, что есть путь (граф связный)
-        if distance == float('inf'):
-            # Нет пути между складами
+        if source_wh is None or distance == float('inf'):
             return None
         
         source_warehouse = self.warehouses[source_wh]
@@ -160,17 +183,16 @@ class Solver:
         if qty_to_move <= 0:
             return None
         
-        # Определяем следующий шаг пути (пошаговое перемещение через промежуточные склады)
+        # Определяем следующий шаг пути (пошаговое перемещение)
+        # По условию: перемещение только между СОСЕДНИМИ складами
         next_hop = self.graph.get_next_hop(source_wh, target_wh)
         
         if next_hop is None:
-            # Склады соседние - перемещаем напрямую
-            next_hop = target_wh
-        
-        # Регистрируем активную доставку для отслеживания пути
-        # Если это не прямое перемещение (товар идёт через промежуточные склады)
-        if next_hop != target_wh:
-            self.active_deliveries[(target_wh, type_k)] = (next_hop, qty_to_move)
+            # Склады уже соседние или совпадают
+            if self.graph.are_neighbors(source_wh, target_wh):
+                next_hop = target_wh
+            else:
+                return None
         
         return Movement(
             step=current_step,
@@ -185,10 +207,10 @@ class Solver:
         Проактивное перемещение: готовимся к будущим заявкам.
         Смотрим на заявки, которые ещё не стали активными.
         """
-        # Смотрим на ближайшие будущие заявки
+        # Смотрим на ВСЕ будущие заявки (не только 5)
         future_orders = [o for o in self.all_orders if o.order_id > current_step]
         
-        for order in future_orders[:5]:  # Смотрим на 5 ближайших
+        for order in future_orders:
             target_wh = order.warehouse_a
             type_k = order.type_k
             needed = order.quantity_t
@@ -199,31 +221,121 @@ class Solver:
             
             available = target_warehouse.get_quantity(type_k)
             
-            if available < needed:
+            # Учитываем товары в пути К ЦЕЛЕВОМУ складу
+            in_transit_qty = sum(
+                item.quantity for item in self._in_transit
+                if item.to_warehouse == target_wh and item.type_k == type_k
+            )
+            
+            if available + in_transit_qty < needed:
                 # Можем начать подготовку
                 move = self._find_move_for_order(order, current_step)
                 if move:
                     return move
         
         return None
-
-    def apply_move(self, move: Movement) -> None:
-        """Применить перемещение к состоянию складов."""
-        if move.quantity <= 0:
-            return
-            
-        source = self.warehouses.get(move.from_warehouse)
-        dest = self.warehouses.get(move.to_warehouse)
-        
-        if source and dest:
-            source.remove_item(move.type_k, move.quantity)
-            dest.add_item(move.type_k, move.quantity)
     
-    def get_total_available(self, type_k: int) -> int:
-        """Получить общее количество товара типа k во всей системе."""
-        total = 0
-        for wh in self.warehouses.values():
-            total += wh.get_quantity(type_k)
+    def _find_intermediate_move(self, active_orders: List[ActiveOrder], 
+                                current_step: int) -> Optional[Movement]:
+        """
+        Найти перемещение для товаров на промежуточных складах.
+        Это нужно когда товар уже прибыл на промежуточный склад и его нужно
+        отправить дальше к цели.
+        """
+        # Собираем все целевые склады, типы и НУЖНЫЕ КОЛИЧЕСТВА из активных заявок
+        # {type_k: {target_wh: needed_qty}}
+        demand: Dict[int, Dict[int, int]] = {}
+        
+        for active in active_orders:
+            type_k = active.order.type_k
+            target_wh = active.order.warehouse_a
+            needed = active.order.quantity_t
+            
+            if type_k not in demand:
+                demand[type_k] = {}
+            demand[type_k][target_wh] = demand[type_k].get(target_wh, 0) + needed
+        
+        # Добавляем будущие заявки (с меньшим приоритетом)
+        for order in self.all_orders:
+            if order.order_id > current_step:
+                type_k = order.type_k
+                target_wh = order.warehouse_a
+                needed = order.quantity_t
+                
+                if type_k not in demand:
+                    demand[type_k] = {}
+                demand[type_k][target_wh] = demand[type_k].get(target_wh, 0) + needed
+        
+        # Для каждого типа товара ищем, можно ли продвинуть его ближе к цели
+        for type_k, target_demands in demand.items():
+            target_warehouses = set(target_demands.keys())
+            
+            for wh_id, wh in self.warehouses.items():
+                qty_available = wh.get_quantity(type_k)
+                if qty_available <= 0:
+                    continue
+                
+                # Проверяем, не является ли этот склад одной из целей
+                if wh_id in target_warehouses:
+                    continue
+                
+                # Ищем ближайшую цель для этого товара
+                best_target = None
+                best_distance = float('inf')
+                best_needed = 0
+                
+                for target_wh, needed_qty in target_demands.items():
+                    distance = self.graph.get_distance(wh_id, target_wh)
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_target = target_wh
+                        best_needed = needed_qty
+                
+                if best_target is None or best_distance == float('inf'):
+                    continue
+                
+                # Считаем, сколько уже едет к цели и сколько там есть
+                in_transit_to_target = sum(
+                    item.quantity for item in self._in_transit
+                    if item.to_warehouse == best_target and item.type_k == type_k
+                )
+                at_target = self.warehouses[best_target].get_quantity(type_k) if best_target in self.warehouses else 0
+                still_needed = best_needed - at_target - in_transit_to_target
+                
+                if still_needed <= 0:
+                    continue
+                
+                # Если товар не на соседнем с целью складе, продвигаем его
+                if best_distance > 0:
+                    next_hop = self.graph.get_next_hop(wh_id, best_target)
+                    if next_hop:
+                        # Перемещаем только нужное количество
+                        qty_to_move = min(qty_available, still_needed)
+                        return Movement(
+                            step=current_step,
+                            from_warehouse=wh_id,
+                            to_warehouse=next_hop,
+                            type_k=type_k,
+                            quantity=qty_to_move
+                        )
+        
+        return None
+
+    def get_total_available(self, type_k: int, include_transit: bool = True) -> int:
+        """
+        Получить общее количество товара типа k во всей системе.
+        
+        Args:
+            type_k: тип товара
+            include_transit: включать ли товары в пути
+        """
+        # Товар на складах
+        total = sum(wh.get_quantity(type_k) for wh in self.warehouses.values())
+        
+        # Товар в пути
+        if include_transit and hasattr(self, '_in_transit'):
+            total += sum(item.quantity for item in self._in_transit if item.type_k == type_k)
+        
         return total
     
     def is_order_fulfillable(self, order: Order) -> bool:
@@ -231,17 +343,8 @@ class Solver:
         Проверить, может ли заявка быть выполнена в принципе.
         Возвращает False, если товара нужного типа недостаточно во всей системе.
         """
-        total_available = self.get_total_available(order.type_k)
+        total_available = self.get_total_available(order.type_k, include_transit=True)
         return total_available >= order.quantity_t
-    
-    def clear_completed_deliveries(self) -> None:
-        """Очистить завершённые доставки."""
-        completed = []
-        for (target_wh, type_k), (current_wh, qty) in self.active_deliveries.items():
-            if current_wh == target_wh:
-                completed.append((target_wh, type_k))
-        for key in completed:
-            del self.active_deliveries[key]
 
 
 class GreedySolver(Solver):
@@ -258,20 +361,22 @@ class PredictiveSolver(Solver):
     Учитывает move_time для оптимизации порядка перемещений.
     """
 
-    def find_best_move(self, active_orders: List[ActiveOrder], current_step: int) -> Optional[Movement]:
+    def find_best_move(self, active_orders: List[ActiveOrder], current_step: int,
+                       in_transit: List[InTransitItem] = None) -> Optional[Movement]:
         """
         Улучшенная стратегия: учитываем не только текущие, но и будущие заявки.
         Приоритезируем товары с меньшим move_time для более быстрой доставки.
+        
+        Порядок приоритетов:
+        1. Срочные активные заявки (с наибольшим штрафом)
+        2. Активные заявки, для которых нужно начать перемещение
+        3. Продвижение товаров на промежуточных складах
+        4. Проактивная подготовка к будущим заявкам
         """
+        self._in_transit = in_transit or []
         
-        # Сначала пробуем базовую логику (включая продолжение активных доставок)
-        base_move = super().find_best_move(active_orders, current_step)
-        
-        if base_move:
-            return base_move
-        
-        # Если базовая логика ничего не нашла, ищем проактивно
-        return self._find_proactive_move(current_step)
+        # Базовая логика уже включает все необходимые попытки
+        return super().find_best_move(active_orders, current_step, in_transit)
 
     def _estimate_future_demand(self, warehouse_id: int, type_k: int, horizon: int = 10) -> int:
         """Оценить будущий спрос на товар типа k на складе."""
@@ -284,7 +389,9 @@ class PredictiveSolver(Solver):
     def _estimate_delivery_urgency(self, order: Order, current_step: int) -> float:
         """
         Оценить срочность доставки для заявки.
-        Учитывает расстояние до товара и время перемещения.
+        Учитывает расстояние до товара, время перемещения и вес рёбер.
+        
+        По условию: время доставки = move_time * вес_ребра * количество_рёбер_на_пути
         """
         target_wh = order.warehouse_a
         type_k = order.type_k
@@ -307,10 +414,13 @@ class PredictiveSolver(Solver):
     def _estimate_steps_to_deliver(self, order: Order) -> int:
         """
         Оценить количество шагов, необходимых для доставки товара.
-        Используется для приоритезации заявок.
+        
+        По условию: каждое перемещение между соседними складами занимает
+        move_time * вес_ребра ходов.
         """
         target_wh = order.warehouse_a
         type_k = order.type_k
+        move_time = self.move_times.get(type_k, 1)
         
         # Ищем ближайший склад с товаром
         warehouses_with_item = [
@@ -321,6 +431,19 @@ class PredictiveSolver(Solver):
         if not warehouses_with_item:
             return float('inf')
         
-        _, distance = self.graph.find_nearest_with_item(target_wh, warehouses_with_item)
-        return distance
+        source_wh, _ = self.graph.find_nearest_with_item(target_wh, warehouses_with_item)
+        if source_wh is None:
+            return float('inf')
+        
+        # Получаем путь и считаем общее время
+        path, _ = self.graph.get_shortest_path(source_wh, target_wh)
+        if len(path) < 2:
+            return 0
+        
+        total_steps = 0
+        for i in range(len(path) - 1):
+            edge_weight = self.graph.get_edge_weight(path[i], path[i+1])
+            total_steps += move_time * edge_weight
+        
+        return total_steps
 
