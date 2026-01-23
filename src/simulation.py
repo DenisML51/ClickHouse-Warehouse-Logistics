@@ -15,9 +15,11 @@ class SimulationState:
     total_move_cost: float = 0.0  # Общая стоимость всех перемещений
     active_orders: List[ActiveOrder] = field(default_factory=list)
     completed_orders: List[Order] = field(default_factory=list)
+    unfulfillable_orders: List[Order] = field(default_factory=list)  # Невыполнимые заявки
     movements_history: List[Movement] = field(default_factory=list)
     penalties_history: List[Penalty] = field(default_factory=list)
     finished: bool = False
+    steps_without_progress: int = 0  # Счётчик шагов без прогресса (для защиты от зацикливания)
 
 
 class Simulation:
@@ -70,6 +72,10 @@ class Simulation:
         self.state.current_step += 1
         step = self.state.current_step
         
+        # Запоминаем состояние до шага для отслеживания прогресса
+        orders_before = len(self.state.active_orders)
+        completed_before = len(self.state.completed_orders)
+        
         # 1. Добавляем новую заявку из листа (если есть)
         if step <= len(self.orders):
             new_order = self.orders[step - 1]
@@ -81,10 +87,13 @@ class Simulation:
         # 2. Пытаемся выполнить активные заявки (до перемещения)
         self._try_complete_orders()
 
-        # 3. Получаем лучшее действие от solver'а
+        # 3. Проверяем невыполнимые заявки (товара нет в системе)
+        self._check_unfulfillable_orders()
+
+        # 4. Получаем лучшее действие от solver'а
         move = self.solver.find_best_move(self.state.active_orders, step)
         
-        # 4. Применяем перемещение и считаем стоимость
+        # 5. Применяем перемещение и считаем стоимость
         if move:
             self.solver.apply_move(move)
             self.state.movements_history.append(move)
@@ -92,10 +101,10 @@ class Simulation:
             unit_cost = self.move_costs.get(move.type_k, 0.0)
             self.state.total_move_cost += unit_cost * move.quantity
 
-        # 5. Снова пытаемся выполнить заявки (после перемещения)
+        # 6. Снова пытаемся выполнить заявки (после перемещения)
         self._try_complete_orders()
 
-        # 6. Считаем штраф за невыполненные заявки
+        # 7. Считаем штраф за невыполненные заявки
         step_penalty = len(self.state.active_orders)
         self.state.total_penalty += step_penalty
         
@@ -112,8 +121,20 @@ class Simulation:
         if self.step_callback:
             self.step_callback(self.state, move)
 
-        # Проверяем завершение
+        # 8. Отслеживание прогресса (защита от зацикливания)
+        completed_now = len(self.state.completed_orders)
+        if completed_now > completed_before:
+            # Есть прогресс - сбрасываем счётчик
+            self.state.steps_without_progress = 0
+        else:
+            self.state.steps_without_progress += 1
+
+        # 9. Проверяем завершение
         if step >= len(self.orders) and not self.state.active_orders:
+            self.state.finished = True
+        
+        # Принудительное завершение при зацикливании (>500 шагов без прогресса)
+        if self.state.steps_without_progress > 500:
             self.state.finished = True
 
         return step_penalty, move
@@ -134,6 +155,30 @@ class Simulation:
                 self.state.completed_orders.append(order)
             else:
                 remaining.append(active)
+        
+        self.state.active_orders = remaining
+    
+    def _check_unfulfillable_orders(self) -> None:
+        """
+        Проверить, есть ли заявки, которые невозможно выполнить.
+        Если товара нужного типа нет во всей системе - заявка невыполнима.
+        """
+        remaining = []
+        
+        for active in self.state.active_orders:
+            order = active.order
+            
+            # Проверяем, есть ли товар в системе вообще
+            if self.solver.is_order_fulfillable(order):
+                remaining.append(active)
+            else:
+                # Заявка невыполнима - товара нет в системе
+                self.state.unfulfillable_orders.append(order)
+                # Логируем
+                wh = self.warehouses.get(order.warehouse_a)
+                if wh:
+                    wh.logs.append(f"[Шаг {self.state.current_step}] Заявка #{order.order_id} НЕВЫПОЛНИМА: "
+                                  f"товара типа {order.type_k} нет в системе")
         
         self.state.active_orders = remaining
 
@@ -199,7 +244,9 @@ class Simulation:
             "total_move_cost": self.state.total_move_cost,
             "active_orders_count": len(self.state.active_orders),
             "completed_orders_count": len(self.state.completed_orders),
+            "unfulfillable_orders_count": len(self.state.unfulfillable_orders),
             "total_movements": len(self.state.movements_history),
-            "finished": self.state.finished
+            "finished": self.state.finished,
+            "steps_without_progress": self.state.steps_without_progress
         }
 

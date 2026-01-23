@@ -167,14 +167,31 @@ def print_warehouse_logs(warehouses: Dict[int, Warehouse], last_n: int = 5) -> N
 def print_simulation_result(state: SimulationState) -> None:
     """Вывести итоговый результат симуляции."""
     console.print()
-    console.print(Panel(
+    
+    # Формируем текст результата
+    result_text = (
         f"[bold]Симуляция завершена![/bold]\n\n"
         f"Всего шагов: {state.current_step}\n"
         f"Выполнено заявок: {len(state.completed_orders)}\n"
         f"Невыполненных заявок: {len(state.active_orders)}\n"
+    )
+    
+    # Добавляем информацию о невыполнимых заявках, если есть
+    if hasattr(state, 'unfulfillable_orders') and state.unfulfillable_orders:
+        result_text += f"[red]Невыполнимых заявок (нет товара): {len(state.unfulfillable_orders)}[/red]\n"
+    
+    result_text += (
         f"Всего перемещений: {len(state.movements_history)}\n"
         f"[cyan]Стоимость перемещений: {state.total_move_cost:,.2f}[/cyan]\n"
-        f"[bold red]ОБЩИЙ ШТРАФ: {state.total_penalty}[/bold red]",
+        f"[bold red]ОБЩИЙ ШТРАФ: {state.total_penalty}[/bold red]"
+    )
+    
+    # Предупреждение о зацикливании
+    if hasattr(state, 'steps_without_progress') and state.steps_without_progress > 100:
+        result_text += f"\n[yellow]⚠ Шагов без прогресса: {state.steps_without_progress}[/yellow]"
+    
+    console.print(Panel(
+        result_text,
         title="Результат",
         style="green" if state.total_penalty == 0 else "yellow",
         box=box.DOUBLE
