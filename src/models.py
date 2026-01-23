@@ -6,11 +6,18 @@ from dataclasses import dataclass, field
 
 
 class ObjectType(BaseModel):
-    """Тип объекта (товара) с его характеристиками."""
+    """
+    Тип объекта (товара) с его характеристиками.
+    
+    По условию задачи каждый тип объекта имеет:
+    - время перемещения (учитывается при расчёте задержек)
+    - стоимость перемещения (учитывается в общих расходах)
+    - стоимость при утрате (информационное поле)
+    """
     type_id: int = Field(ge=1, lt=100, description="ID типа товара (K < 100)")
-    move_time: int = Field(ge=1, description="Время одного перемещения (в ходах)")
-    move_cost: float = Field(ge=0, description="Стоимость одного перемещения")
-    loss_value: float = Field(ge=0, description="Стоимость при утрате")
+    move_time: int = Field(ge=1, description="Время одного перемещения (в ходах) - используется для приоритезации")
+    move_cost: float = Field(ge=0, description="Стоимость одного перемещения - учитывается в total_move_cost")
+    loss_value: float = Field(ge=0, description="Стоимость товара при утрате - информационное поле")
 
 
 class Edge(BaseModel):

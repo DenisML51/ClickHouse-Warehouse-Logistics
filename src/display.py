@@ -148,7 +148,7 @@ def print_step_info(state: SimulationState, move: Optional[Movement], warehouses
 
     # Статистика
     step_penalty = len(state.active_orders)
-    console.print(f"[red]Штраф за шаг: {step_penalty}[/red] | [yellow]Общий штраф: {state.total_penalty}[/yellow]")
+    console.print(f"[red]Штраф за шаг: {step_penalty}[/red] | [yellow]Общий штраф: {state.total_penalty}[/yellow] | [cyan]Стоимость: {state.total_move_cost:,.2f}[/cyan]")
 
 
 def print_warehouse_logs(warehouses: Dict[int, Warehouse], last_n: int = 5) -> None:
@@ -173,6 +173,7 @@ def print_simulation_result(state: SimulationState) -> None:
         f"Выполнено заявок: {len(state.completed_orders)}\n"
         f"Невыполненных заявок: {len(state.active_orders)}\n"
         f"Всего перемещений: {len(state.movements_history)}\n"
+        f"[cyan]Стоимость перемещений: {state.total_move_cost:,.2f}[/cyan]\n"
         f"[bold red]ОБЩИЙ ШТРАФ: {state.total_penalty}[/bold red]",
         title="Результат",
         style="green" if state.total_penalty == 0 else "yellow",

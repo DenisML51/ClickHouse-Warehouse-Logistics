@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 
 from src.database import Database
 from src.graph import WarehouseGraph
-from src.models import Warehouse, Order, Movement
+from src.models import Warehouse, Order, Movement, ObjectType
 from src.simulation import Simulation, SimulationState
 from src.tests_generator import TestGenerator
 from src import display
@@ -24,6 +24,7 @@ class Application:
         self.graph: Optional[WarehouseGraph] = None
         self.warehouses: Dict[int, Warehouse] = {}
         self.orders: List[Order] = []
+        self.object_types: List[ObjectType] = []  # Типы объектов с характеристиками
         self.simulation: Optional[Simulation] = None
         self.current_test: Optional[dict] = None
         self.test_generator: Optional[TestGenerator] = None
@@ -95,6 +96,9 @@ class Application:
         if not self.db:
             return
 
+        # Загружаем типы объектов (с характеристиками move_time, move_cost, loss_value)
+        self.object_types = self.db.get_object_types()
+
         # Загружаем граф
         edges = self.db.get_graph_edges()
         self.graph = WarehouseGraph()
@@ -124,7 +128,7 @@ class Application:
         # Загружаем заявки
         self.orders = self.db.get_orders()
 
-        display.print_success(f"Загружено: {len(self.warehouses)} складов, {len(self.orders)} заявок")
+        display.print_success(f"Загружено: {len(self.warehouses)} складов, {len(self.orders)} заявок, {len(self.object_types)} типов товаров")
 
     def _show_tables_preview(self) -> None:
         """Показать превью таблиц из БД."""
@@ -184,6 +188,7 @@ class Application:
             graph=self.graph,
             warehouses=self.warehouses,
             orders=self.orders,
+            object_types=self.object_types,  # Передаём типы объектов
             solver_type="predictive"
         )
 
@@ -220,6 +225,7 @@ class Application:
             graph=self.graph,
             warehouses=self.warehouses,
             orders=self.orders,
+            object_types=self.object_types,  # Передаём типы объектов
             solver_type="predictive"
         )
 

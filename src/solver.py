@@ -13,13 +13,15 @@ class Solver:
     1. Приоритет — выполнение текущих активных заявок.
     2. Если активная заявка не может быть выполнена — везём товар ближе.
     3. Если текущий ход "свободен" — готовимся к будущим заявкам.
+    4. При выборе учитывается время перемещения товара (move_time).
     """
 
     def __init__(self, graph: WarehouseGraph, warehouses: Dict[int, Warehouse],
-                 all_orders: List[Order]):
+                 all_orders: List[Order], move_times: Dict[int, int] = None):
         self.graph = graph
         self.warehouses = warehouses
         self.all_orders = all_orders
+        self.move_times = move_times or {}  # {type_id: move_time}
         
         # Кэш: товары "в пути" (ещё не доехали)
         # {(from_wh, to_wh, type_k): quantity}
@@ -31,13 +33,19 @@ class Solver:
         
         Логика:
         1. Смотрим активные заявки (невыполненные).
-        2. Для самой "горячей" заявки (самая старая) ищем, откуда везти товар.
+        2. Для самой "горячей" заявки (самая старая + быстрее доставить) ищем, откуда везти товар.
         3. Если можно двигать — двигаем.
         4. Если нет активных заявок или всё на месте — смотрим в будущее.
         """
         
-        # Сортируем активные заявки по приоритету (старые важнее)
-        sorted_orders = sorted(active_orders, key=lambda x: x.created_at_step)
+        # Сортируем активные заявки по приоритету:
+        # 1) Старые важнее (больше штраф накопился)
+        # 2) При равном возрасте — товары с меньшим move_time (быстрее доставить)
+        def order_priority(active: ActiveOrder) -> Tuple[int, int]:
+            move_time = self.move_times.get(active.order.type_k, 1)
+            return (active.created_at_step, move_time)
+        
+        sorted_orders = sorted(active_orders, key=order_priority)
         
         for active in sorted_orders:
             move = self._find_move_for_order(active.order, current_step)
@@ -157,11 +165,13 @@ class PredictiveSolver(Solver):
     """
     Предиктивный алгоритм: учитывает будущие заявки при принятии решений.
     Пытается минимизировать будущие штрафы.
+    Учитывает move_time для оптимизации порядка перемещений.
     """
 
     def find_best_move(self, active_orders: List[ActiveOrder], current_step: int) -> Optional[Movement]:
         """
         Улучшенная стратегия: учитываем не только текущие, но и будущие заявки.
+        Приоритезируем товары с меньшим move_time для более быстрой доставки.
         """
         
         # Сначала пробуем базовую логику
@@ -180,4 +190,27 @@ class PredictiveSolver(Solver):
             if order.warehouse_a == warehouse_id and order.type_k == type_k:
                 demand += order.quantity_t
         return demand
+    
+    def _estimate_delivery_urgency(self, order: Order, current_step: int) -> float:
+        """
+        Оценить срочность доставки для заявки.
+        Учитывает расстояние до товара и время перемещения.
+        """
+        target_wh = order.warehouse_a
+        type_k = order.type_k
+        move_time = self.move_times.get(type_k, 1)
+        
+        # Ищем ближайший склад с товаром
+        warehouses_with_item = [
+            wh_id for wh_id, wh in self.warehouses.items()
+            if wh_id != target_wh and wh.get_quantity(type_k) > 0
+        ]
+        
+        if not warehouses_with_item:
+            return float('inf')
+        
+        _, distance = self.graph.find_nearest_with_item(target_wh, warehouses_with_item)
+        
+        # Срочность = расстояние * время_перемещения (чем меньше, тем срочнее)
+        return distance * move_time
 

@@ -2,7 +2,7 @@
 
 from typing import Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass, field
-from .models import Order, Movement, Penalty, Warehouse, ActiveOrder
+from .models import Order, Movement, Penalty, Warehouse, ActiveOrder, ObjectType
 from .graph import WarehouseGraph
 from .solver import Solver, PredictiveSolver
 
@@ -12,6 +12,7 @@ class SimulationState:
     """Состояние симуляции на текущем шаге."""
     current_step: int = 0
     total_penalty: int = 0
+    total_move_cost: float = 0.0  # Общая стоимость всех перемещений
     active_orders: List[ActiveOrder] = field(default_factory=list)
     completed_orders: List[Order] = field(default_factory=list)
     movements_history: List[Movement] = field(default_factory=list)
@@ -31,17 +32,26 @@ class Simulation:
     """
 
     def __init__(self, graph: WarehouseGraph, warehouses: Dict[int, Warehouse],
-                 orders: List[Order], solver_type: str = "predictive"):
+                 orders: List[Order], object_types: List[ObjectType] = None,
+                 solver_type: str = "predictive"):
         self.graph = graph
         self.warehouses = warehouses
         self.orders = orders
         self.state = SimulationState()
         
+        # Словарь стоимостей перемещения по типам товаров
+        self.move_costs: Dict[int, float] = {}
+        self.move_times: Dict[int, int] = {}
+        if object_types:
+            for ot in object_types:
+                self.move_costs[ot.type_id] = ot.move_cost
+                self.move_times[ot.type_id] = ot.move_time
+        
         # Создаём решатель
         if solver_type == "predictive":
-            self.solver = PredictiveSolver(graph, warehouses, orders)
+            self.solver = PredictiveSolver(graph, warehouses, orders, self.move_times)
         else:
-            self.solver = Solver(graph, warehouses, orders)
+            self.solver = Solver(graph, warehouses, orders, self.move_times)
 
         # Callback для интерактивного режима
         self.step_callback: Optional[Callable[[SimulationState, Optional[Movement]], None]] = None
@@ -74,10 +84,13 @@ class Simulation:
         # 3. Получаем лучшее действие от solver'а
         move = self.solver.find_best_move(self.state.active_orders, step)
         
-        # 4. Применяем перемещение
+        # 4. Применяем перемещение и считаем стоимость
         if move:
             self.solver.apply_move(move)
             self.state.movements_history.append(move)
+            # Добавляем стоимость перемещения
+            unit_cost = self.move_costs.get(move.type_k, 0.0)
+            self.state.total_move_cost += unit_cost * move.quantity
 
         # 5. Снова пытаемся выполнить заявки (после перемещения)
         self._try_complete_orders()
@@ -183,6 +196,7 @@ class Simulation:
         return {
             "current_step": self.state.current_step,
             "total_penalty": self.state.total_penalty,
+            "total_move_cost": self.state.total_move_cost,
             "active_orders_count": len(self.state.active_orders),
             "completed_orders_count": len(self.state.completed_orders),
             "total_movements": len(self.state.movements_history),
