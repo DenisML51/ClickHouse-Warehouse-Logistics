@@ -29,9 +29,7 @@ class SimulationState:
     end_time: float = 0.0    # Время окончания
     total_items_moved: int = 0  # Всего перемещено товаров
     moves_by_type: Dict[int, int] = field(default_factory=dict)  # Перемещений по типам
-    
-    # Склады с инвентарём и логами.
-    # ... (не используемые поля удалены) ...
+
     
 class Simulation:
     """

@@ -36,7 +36,6 @@ class TestGenerator:
             ))
         return types
 
-    # ========== ГЕНЕРАТОРЫ ГРАФОВ ==========
 
     def generate_chain_graph(self, n: int) -> List[Edge]:
         """Генерация линейного графа (цепочка): 1-2-3-...-N."""
@@ -85,7 +84,6 @@ class TestGenerator:
             edges.append(Edge(from_id=a, to_id=b, weight=random.randint(1, 3)))
         return edges
 
-    # ========== РАСПРЕДЕЛЕНИЕ ОБЪЕКТОВ ==========
 
     def distribute_objects_uniform(self, warehouses: int, types: int) -> List[Tuple[int, int, int]]:
         """Равномерное распределение 100 000 объектов по складам и типам."""
@@ -224,12 +222,11 @@ class TestGenerator:
                     order_id=order_id,
                     type_k=t,
                     quantity_t=qty,
-                    warehouse_a=wh  # Заявка на тот же склад, где лежит товар!
+                    warehouse_a=wh  # Заявка на тот же склад, где лежит товар
                 ))
                 order_id += 1
                 remaining -= qty
 
-        # Перемешиваем и перенумеровываем
         random.shuffle(orders)
         for i, order in enumerate(orders, 1):
             order.order_id = i
@@ -433,7 +430,6 @@ class TestGenerator:
             "total_objects": TOTAL_OBJECTS
         }
 
-    # ========== ЗАГРУЗКА В БД ==========
 
     def load_test_to_db(self, test_data: dict) -> None:
         """Загрузить тест в базу данных."""
