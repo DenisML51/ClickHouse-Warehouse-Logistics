@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Анализ оптимальности алгоритма.
 Сравниваем текущий алгоритм с:
@@ -10,13 +9,12 @@
 """
 
 import random
-import copy
 from typing import Dict, List, Tuple
 from src.graph import WarehouseGraph
-from src.models import Warehouse, Order, Edge, ObjectType, ActiveOrder, InTransitItem, Movement
+from src.models import Warehouse, ActiveOrder, InTransitItem, Movement
 from src.simulation import Simulation
 from src.solver import Solver, PredictiveSolver
-from src.test_all_scenarios import TestDataGenerator, TOTAL_OBJECTS
+from src.tests_app.test_all_scenarios import TestDataGenerator
 
 
 class NaiveSolver(Solver):

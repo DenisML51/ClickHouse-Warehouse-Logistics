@@ -7,8 +7,8 @@
 
 import random
 from typing import List, Tuple, Dict
-from .models import ObjectType, Edge, Order
-from .database import Database
+from src.models import ObjectType, Edge, Order
+from src.database import Database
 
 
 # Константа: общее количество объектов по условию задачи

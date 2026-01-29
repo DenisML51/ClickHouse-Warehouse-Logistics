@@ -56,7 +56,7 @@ class Warehouse:
     """Склад с инвентарём и логами."""
     id: int
     name: str
-    inventory: Dict[int, int] = field(default_factory=dict)  # {type_k: quantity}
+    inventory: Dict[int, int] = field(default_factory=dict)
     logs: List[str] = field(default_factory=list)
 
     def add_item(self, type_k: int, quantity: int) -> None:

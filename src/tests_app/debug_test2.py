@@ -7,9 +7,9 @@
 import random
 from typing import Dict
 from src.graph import WarehouseGraph
-from src.models import Warehouse, Order, Edge, ObjectType
+from src.models import Warehouse
 from src.simulation import Simulation
-from src.test_all_scenarios import TestDataGenerator, TOTAL_OBJECTS
+from src.tests_app.test_all_scenarios import TestDataGenerator
 
 
 def debug_test2():

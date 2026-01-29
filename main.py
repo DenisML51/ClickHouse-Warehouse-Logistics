@@ -12,7 +12,7 @@ from src.database import Database
 from src.graph import WarehouseGraph
 from src.models import Warehouse, Order, Movement, ObjectType
 from src.simulation import Simulation, SimulationState
-from src.tests_generator import TestGenerator
+from src.tests_app.tests_generator import TestGenerator
 from src import display
 
 
