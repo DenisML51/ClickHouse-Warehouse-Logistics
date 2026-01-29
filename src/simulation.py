@@ -246,8 +246,9 @@ class Simulation:
         
         # Вычисляем время доставки
         move_time = self.move_times.get(move.type_k, 1)
-        edge_weight = self.graph.get_edge_weight(move.from_warehouse, move.to_warehouse)
-        transit_time = move_time * edge_weight
+        # Получаем общее расстояние (сумму весов рёбер) между складами
+        total_distance = self.graph.get_distance(move.from_warehouse, move.to_warehouse)
+        transit_time = move_time * total_distance
         arrival_step = current_step + transit_time
         
         # Создаём запись о товаре в пути

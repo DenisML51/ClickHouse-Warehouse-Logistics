@@ -184,7 +184,6 @@ class Database:
                            column_names=["test_id", "test_name", "description", "num_warehouses",
                                          "num_object_types", "total_objects", "num_orders"])
 
-    # ========== ЧТЕНИЕ ДАННЫХ ==========
 
     def get_object_types(self) -> List[ObjectType]:
         """Получить все типы объектов."""

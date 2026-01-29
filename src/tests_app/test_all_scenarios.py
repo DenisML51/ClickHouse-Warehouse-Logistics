@@ -184,8 +184,7 @@ class TestDataGenerator:
         
         return orders
     
-    # ========== 6 ТЕСТОВЫХ СЦЕНАРИЕВ ==========
-    
+
     def generate_test_1(self) -> dict:
         """Тест 1: Идеальный случай (штраф = 0)."""
         n_warehouses, n_types = 10, 10
@@ -512,7 +511,6 @@ def test_stability(runs: int = 3):
 
 
 if __name__ == "__main__":
-    # Основной анализ
     results = analyze_algorithm()
     
     # Тест стабильности
