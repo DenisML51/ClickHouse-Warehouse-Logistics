@@ -100,75 +100,65 @@ class Solver:
         self._type_move_counts[type_k] = self._type_move_counts.get(type_k, 0) + 1
         self._last_moved_type = type_k
 
+    def _get_future_demand(self, warehouse_id: int, type_k: int, current_step: int) -> int:
+        """Рассчитать суммарный будущий спрос на товар на складе."""
+        return sum(o.quantity_t for o in self.all_orders 
+                  if o.warehouse_a == warehouse_id and o.type_k == type_k 
+                  and o.order_id >= current_step)
+
     def _find_move_for_order(self, order: Order, current_step: int) -> Optional[Movement]:
         """
         Найти перемещение для конкретной заявки.
-        
-        Одно действие покрывает весь кратчайший путь от источника до цели.
-        Время в пути суммируется по всем рёбрам.
         """
         target_wh = order.warehouse_a
         type_k = order.type_k
-        needed = order.quantity_t
+        
+        # Считаем СУММАРНУЮ потребность этого склада в этом товаре (включая эту заявку и будущие)
+        total_needed = self._get_future_demand(target_wh, type_k, current_step)
         
         target_warehouse = self.warehouses.get(target_wh)
-        if not target_warehouse:
-            return None
+        available = target_warehouse.get_quantity(type_k) if target_warehouse else 0
+        in_transit = sum(item.quantity for item in self._in_transit 
+                        if item.to_warehouse == target_wh and item.type_k == type_k)
         
-        # Сколько уже есть на целевом складе?
-        available = target_warehouse.get_quantity(type_k)
+        if available + in_transit >= total_needed:
+            return None # Склад полностью обеспечен под все будущие нужды этого типа
+            
+        to_deliver = total_needed - (available + in_transit)
         
-        # Сколько уже в пути к этому складу?
-        in_transit_to_target = sum(
-            item.quantity for item in self._in_transit 
-            if item.to_warehouse == target_wh and item.type_k == type_k
-        )
-        
-        if available >= needed:
-            # Товар уже на месте, заявка может быть выполнена
-            return None
-        
-        # Учитываем товар в пути
-        expected_available = available + in_transit_to_target
-        if expected_available >= needed:
-            # Товар уже едет, ждём
-            return None
-        
-        # Нужно довезти ещё
-        to_deliver = needed - expected_available
-        
-        # Ищем склады, где есть нужный товар (не на целевом складе)
-        warehouses_with_item = []
+        # Ищем склады-источники, у которых есть ИЗЛИШЕК товара
+        warehouses_with_surplus = []
         for wh_id, wh in self.warehouses.items():
-            if wh_id != target_wh and wh.get_quantity(type_k) > 0:
-                warehouses_with_item.append(wh_id)
+            if wh_id == target_wh: continue
+            
+            qty = wh.get_quantity(type_k)
+            if qty <= 0: continue
+            
+            # Излишек = текущий запас - будущие нужды этого же склада
+            own_future_demand = self._get_future_demand(wh_id, type_k, current_step)
+            surplus = qty - own_future_demand
+            
+            if surplus > 0:
+                warehouses_with_surplus.append(wh_id)
         
-        if not warehouses_with_item:
-            # Товара нигде нет на складах (возможно, весь в пути)
+        if not warehouses_with_surplus:
             return None
+            
+        source_wh, distance = self.graph.find_nearest_with_item(target_wh, warehouses_with_surplus)
+        if source_wh is None: return None
         
-        # Находим ближайший склад с товаром и расстояние до него
-        source_wh, distance = self.graph.find_nearest_with_item(target_wh, warehouses_with_item)
+        qty_at_source = self.warehouses[source_wh].get_quantity(type_k)
+        own_demand_at_source = self._get_future_demand(source_wh, type_k, current_step)
         
-        if source_wh is None or distance == float('inf'):
-            return None
+        # Берем только излишек, чтобы не навредить складу-источнику
+        available_surplus = qty_at_source - own_demand_at_source
+        qty_to_move = min(to_deliver, available_surplus)
         
-        source_warehouse = self.warehouses[source_wh]
-        available_at_source = source_warehouse.get_quantity(type_k)
-        
-        # Сколько можем переместить
-        qty_to_move = min(to_deliver, available_at_source)
-        
-        if qty_to_move <= 0:
-            return None
+        if qty_to_move <= 0: return None
         
         return Movement(
-            step=current_step,
-            from_warehouse=source_wh,
-            to_warehouse=target_wh,
-            type_k=type_k,
-            quantity=qty_to_move,
-            reason_order_id=order.order_id
+            step=current_step, from_warehouse=source_wh, to_warehouse=target_wh,
+            type_k=type_k, quantity=qty_to_move, reason_order_id=order.order_id
         )
 
     def _find_proactive_move(self, current_step: int) -> Optional[Movement]:

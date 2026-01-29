@@ -29,9 +29,10 @@ class SimulationState:
     end_time: float = 0.0    # Время окончания
     total_items_moved: int = 0  # Всего перемещено товаров
     moves_by_type: Dict[int, int] = field(default_factory=dict)  # Перемещений по типам
-    theoretical_min_penalty: int = 0  # Теоретический минимум штрафа
-
-
+    
+    # Склады с инвентарём и логами.
+    # ... (не используемые поля удалены) ...
+    
 class Simulation:
     """
     Движок симуляции системы логистики.
@@ -72,36 +73,6 @@ class Simulation:
         """Сбросить симуляцию в начальное состояние."""
         self.state = SimulationState()
     
-    def _calculate_theoretical_minimum(self) -> int:
-        """
-        Вычислить теоретическую нижнюю границу штрафа.
-        Это сумма минимальных расстояний для каждой заявки.
-        ОЧЕНЬ оптимистичная оценка (реальный оптимум выше).
-        """
-        # Подсчёт товаров по типам и складам
-        stock: Dict[Tuple[int, int], int] = {}
-        for wh_id, wh in self.warehouses.items():
-            for type_k, qty in wh.inventory.items():
-                stock[(wh_id, type_k)] = qty
-        
-        total_min = 0
-        for order in self.orders:
-            target_wh = order.warehouse_a
-            type_k = order.type_k
-            
-            # Минимальное расстояние до товара нужного типа
-            min_dist = 0
-            for (wh, t), qty in stock.items():
-                if t == type_k and qty > 0:
-                    dist = self.graph.get_distance(wh, target_wh)
-                    if dist < float('inf'):
-                        min_dist = max(min_dist, dist)  # Консервативная оценка
-                        break
-            
-            total_min += min_dist
-        
-        return total_min
-
     def step(self) -> Tuple[int, Optional[Movement]]:
         """
         Выполнить один шаг симуляции.
@@ -349,9 +320,8 @@ class Simulation:
         Args:
             max_steps: максимальное количество шагов (защита от бесконечного цикла)
         """
-        # Замер времени и расчёт теоретического минимума
+        # Замер времени
         self.state.start_time = time.time()
-        self.state.theoretical_min_penalty = self._calculate_theoretical_minimum()
         
         while not self.state.finished and self.state.current_step < max_steps:
             self.step()

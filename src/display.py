@@ -249,20 +249,6 @@ def print_simulation_result(state: SimulationState) -> None:
         f"[bold red]ОБЩИЙ ШТРАФ: {state.total_penalty}[/bold red]\n"
     )
     
-    # === Сравнение с теорией ===
-    if hasattr(state, 'theoretical_min_penalty'):
-        theory_min = state.theoretical_min_penalty
-        if theory_min > 0:
-            ratio = state.total_penalty / theory_min
-            result_text += (
-                f"\n[cyan]--- Сравнение с теорией ---[/cyan]\n"
-                f"Теоретич. минимум (нижняя граница): {theory_min}\n"
-                f"Реальный штраф: {state.total_penalty}\n"
-                f"Соотношение: {ratio:.1f}x (чем ближе к 1, тем лучше)\n"
-            )
-        else:
-            result_text += f"\n[green]Теоретич. минимум: 0 (идеальный случай)[/green]\n"
-    
     # === Статистика ожидания ===
     if state.completed_orders:
         result_text += (
