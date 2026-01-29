@@ -141,7 +141,6 @@ class TestGenerator:
 
         return [(wh, t, qty) for (wh, t), qty in inventory_dict.items()]
 
-    # ========== ГЕНЕРАЦИЯ ЗАЯВОК (СУММА = 100 000) ==========
 
     def generate_orders_from_inventory(self, inventory: List[Tuple[int, int, int]],
                                        target_warehouses: List[int] = None,
@@ -374,7 +373,7 @@ class TestGenerator:
         100 000 объектов 50 типов на сетке 5x4.
         """
         n_warehouses = 20
-        n_types = 50  # Много типов (но < 100)
+        n_types = 50
 
         object_types = self.generate_object_types(n_types)
         edges = self.generate_grid_graph(5, 4)  # 5x4 = 20 складов
