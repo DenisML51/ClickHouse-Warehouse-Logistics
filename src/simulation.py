@@ -213,9 +213,10 @@ class Simulation:
                 dest = self.warehouses.get(item.to_warehouse)
                 if dest:
                     dest.add_item(item.type_k, item.quantity)
+                    reason_str = f" (для заявки #{item.reason_order_id})" if item.reason_order_id else ""
                     dest.logs.append(
                         f"[Шаг {current_step}] Прибыло {item.quantity} шт. типа {item.type_k} "
-                        f"со склада {item.from_warehouse}"
+                        f"со склада {item.from_warehouse}{reason_str}"
                     )
             else:
                 # Товар ещё в пути
@@ -239,9 +240,10 @@ class Simulation:
         if not source.remove_item(move.type_k, move.quantity):
             return  # Не удалось забрать
         
+        reason_str = f" (для заявки #{move.reason_order_id})" if move.reason_order_id else ""
         source.logs.append(
             f"[Шаг {current_step}] Отправлено {move.quantity} шт. типа {move.type_k} "
-            f"на склад {move.to_warehouse}"
+            f"на склад {move.to_warehouse}{reason_str}"
         )
         
         # Вычисляем время доставки
@@ -258,7 +260,8 @@ class Simulation:
             type_k=move.type_k,
             quantity=move.quantity,
             departure_step=current_step,
-            arrival_step=arrival_step
+            arrival_step=arrival_step,
+            reason_order_id=move.reason_order_id
         )
         self.state.in_transit.append(in_transit)
 

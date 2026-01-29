@@ -139,8 +139,9 @@ def print_step_info(state: SimulationState, move: Optional[Movement], warehouses
 
     # Информация о перемещении
     if move:
+        reason_str = f" (для заявки #{move.reason_order_id})" if move.reason_order_id else ""
         console.print(Panel(
-            f"[green]Перемещение:[/green] Склад {move.from_warehouse} → Склад {move.to_warehouse}\n"
+            f"[green]Перемещение:[/green] Склад {move.from_warehouse} → Склад {move.to_warehouse}{reason_str}\n"
             f"Тип товара: {move.type_k}, Количество: {move.quantity}",
             title="Действие",
             box=box.ROUNDED
@@ -378,6 +379,7 @@ def print_movements_table(movements: List[Movement], limit: int = 20) -> None:
     table.add_column("Куда", style="yellow")
     table.add_column("Тип K", style="magenta")
     table.add_column("Кол-во", style="blue")
+    table.add_column("Для заявки #", style="dim")
 
     for move in movements[:limit]:
         table.add_row(
@@ -385,7 +387,8 @@ def print_movements_table(movements: List[Movement], limit: int = 20) -> None:
             str(move.from_warehouse),
             str(move.to_warehouse),
             str(move.type_k),
-            str(move.quantity)
+            str(move.quantity),
+            str(move.reason_order_id) if move.reason_order_id else "-"
         )
 
     if len(movements) > limit:

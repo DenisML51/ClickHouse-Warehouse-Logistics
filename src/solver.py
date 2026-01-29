@@ -167,7 +167,8 @@ class Solver:
             from_warehouse=source_wh,
             to_warehouse=target_wh,
             type_k=type_k,
-            quantity=qty_to_move
+            quantity=qty_to_move,
+            reason_order_id=order.order_id
         )
 
     def _find_proactive_move(self, current_step: int) -> Optional[Movement]:
@@ -210,9 +211,9 @@ class Solver:
         Это нужно когда товар уже прибыл на промежуточный склад и его нужно
         отправить дальше к цели.
         """
-        # Собираем все целевые склады, типы и НУЖНЫЕ КОЛИЧЕСТВА из активных заявок
-        # {type_k: {target_wh: needed_qty}}
-        demand: Dict[int, Dict[int, int]] = {}
+        # Собираем все целевые склады, типы, НУЖНЫЕ КОЛИЧЕСТВА и пример ID заявки
+        # {type_k: {target_wh: {"qty": needed_qty, "order_id": order_id}}}
+        demand: Dict[int, Dict[int, Dict[str, any]]] = {}
         
         for active in active_orders:
             type_k = active.order.type_k
@@ -221,7 +222,9 @@ class Solver:
             
             if type_k not in demand:
                 demand[type_k] = {}
-            demand[type_k][target_wh] = demand[type_k].get(target_wh, 0) + needed
+            if target_wh not in demand[type_k]:
+                demand[type_k][target_wh] = {"qty": 0, "order_id": active.order.order_id}
+            demand[type_k][target_wh]["qty"] += needed
         
         # Добавляем будущие заявки (с меньшим приоритетом)
         for order in self.all_orders:
@@ -232,7 +235,9 @@ class Solver:
                 
                 if type_k not in demand:
                     demand[type_k] = {}
-                demand[type_k][target_wh] = demand[type_k].get(target_wh, 0) + needed
+                if target_wh not in demand[type_k]:
+                    demand[type_k][target_wh] = {"qty": 0, "order_id": order.order_id}
+                demand[type_k][target_wh]["qty"] += needed
         
         # Для каждого типа товара ищем, можно ли продвинуть его ближе к цели
         for type_k, target_demands in demand.items():
@@ -251,13 +256,15 @@ class Solver:
                 best_target = None
                 best_distance = float('inf')
                 best_needed = 0
+                sample_order_id = None
                 
-                for target_wh, needed_qty in target_demands.items():
+                for target_wh, data in target_demands.items():
                     distance = self.graph.get_distance(wh_id, target_wh)
                     if distance < best_distance:
                         best_distance = distance
                         best_target = target_wh
-                        best_needed = needed_qty
+                        best_needed = data["qty"]
+                        sample_order_id = data["order_id"]
                 
                 if best_target is None or best_distance == float('inf'):
                     continue
@@ -282,7 +289,8 @@ class Solver:
                         from_warehouse=wh_id,
                         to_warehouse=best_target,
                         type_k=type_k,
-                        quantity=qty_to_move
+                        quantity=qty_to_move,
+                        reason_order_id=sample_order_id
                     )
         
         return None

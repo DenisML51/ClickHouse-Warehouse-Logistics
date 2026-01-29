@@ -42,6 +42,7 @@ class Movement(BaseModel):
     to_warehouse: int = Field(ge=1, description="Куда везём")
     type_k: int = Field(ge=1, lt=100, description="Тип товара (только один за ход)")
     quantity: int = Field(ge=0, description="Количество перемещаемого товара")
+    reason_order_id: Optional[int] = Field(None, description="ID заявки, вызвавшей перемещение")
 
 
 class Penalty(BaseModel):
@@ -120,6 +121,7 @@ class InTransitItem:
     quantity: int        # Количество
     departure_step: int  # Шаг отправления
     arrival_step: int    # Шаг прибытия (когда товар станет доступен)
+    reason_order_id: Optional[int] = None # ID заявки, вызвавшей перемещение
     
     def is_arrived(self, current_step: int) -> bool:
         """Проверить, прибыл ли товар."""
