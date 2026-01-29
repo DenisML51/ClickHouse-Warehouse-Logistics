@@ -239,7 +239,14 @@ class Application:
         display.console.print("  [q] - остановить симуляцию")
         display.console.print()
 
+        is_auto = False
+
         def interactive_callback(state: SimulationState, move: Optional[Movement]) -> bool:
+            nonlocal is_auto
+            
+            if is_auto:
+                return True
+
             display.print_step_info(state, move, self.warehouses)
 
             while True:
@@ -252,8 +259,9 @@ class Application:
                 elif cmd == "i":
                     display.print_inventory_summary(self.warehouses)
                 elif cmd == "a":
+                    is_auto = True
                     display.console.print("\n[yellow]Переключение в автоматический режим...[/yellow]")
-                    return True  # Продолжить, но в авто-режиме
+                    return True  # Продолжить, теперь в авто-режиме
                 elif cmd == "q":
                     display.console.print("\n[yellow]Симуляция остановлена.[/yellow]")
                     return False  # Остановить
@@ -334,8 +342,8 @@ class Application:
 def main():
     """Точка входа."""
     display.print_header("Логистический оптимизатор v1.0")
-    display.console.print("[cyan]Курсовой проект по СУБД[/cyan]")
-    display.console.print("[dim]ClickHouse + MergeTree + Python[/dim]")
+    display.console.print("[bold cyan]Высокопроизводительная система оптимизации логистики[/bold cyan]")
+    display.console.print("[dim]Сверхбыстрая обработка на базе ClickHouse[/dim]")
     display.console.print()
 
     app = Application()

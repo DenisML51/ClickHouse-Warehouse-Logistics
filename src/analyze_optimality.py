@@ -257,32 +257,25 @@ def main():
     
     # Выводы
     print("\n" + "="*80)
-    print("ВЫВОДЫ")
+    print("ИТОГОВЫЕ ВЫВОДЫ")
     print("="*80)
     print("""
-1. TEORETICHESKIY MINIMUM - eto OCHEN' optimistichnaya nizhnyaya granica.
-   Real'nyy optimum znachitel'no vyshe iz-za:
-   - Ogranicheniya "1 peremeshchenie za hod"
-   - Ogranicheniya "1 tip tovara za hod"
-   - Neobhodimosti prohodit' cherez promezhutochnye sklady
+1. ТЕОРЕТИЧЕСКИЙ МИНИМУМ — это крайне оптимистичная нижняя граница.
+   Реальный оптимум всегда выше из-за жестких ограничений системы:
+   - Лимит «1 перемещение за ход» (пропускная способность транспорта)
+   - Ограничение «1 тип товара за ход» (очередность погрузки)
+   - Геометрия сети и необходимость промежуточных перегрузок
 
-2. PredictiveSolver znachitel'no luchshe NaiveSolver potomu chto:
-   - Chereduet tipy tovarov (net golodaniya)
-   - Prioritiziruet zayavki bez tovara v puti
-   - Proaktivno gotovitsya k budushchim zayavkam
+2. PredictiveSolver показывает значительное преимущество над NaiveSolver:
+   - Интеллектуальное чередование типов товаров (исключает «голодание» складов)
+   - Учет товаров в пути при принятии решений (минимизирует избыточные перевозки)
+   - Проактивное планирование под будущий спрос (Look-ahead стратегия)
 
-3. Dlya OPTIMAL'NOGO resheniya nuzhny metody:
-   - Integer Linear Programming (ILP)
-   - Dinamicheskoe programmirovanie
-   - Metaevristiki (geneticheskie algoritmy, otzhig)
-   
-   No eto NP-slozhnaya zadacha, i dlya 100 000 ob'ektov tochnoe reshenie 
-   vychislitel'no nerealistichno.
-
-4. Tekushchiy algoritm - eto HOROSHAYA EVRISTIKA, kotoraya:
-   [+] Garantiruet vypolnenie vseh zayavok
-   [+] Znachitel'no luchshe naivnogo podhoda
-   [+] Rabotaet za polinomial'noe vremya
+3. Масштабируемость и сложность:
+   - Данная задача является NP-трудной в строгой постановке.
+   - Для 100 000 объектов точные методы (ILP) вычислительно нереализуемы.
+   - Текущий алгоритм — это высокоэффективная эвристика с полиномиальной сложностью, 
+     которая гарантирует стабильный и предсказуемый результат за минимальное время.
 """)
 
 
