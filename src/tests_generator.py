@@ -430,6 +430,153 @@ class TestGenerator:
             "total_objects": TOTAL_OBJECTS
         }
 
+    def generate_deterministic_object_types(self, k: int = 10) -> List[ObjectType]:
+        """Генерация K типов объектов с фиксированными параметрами."""
+        types = []
+        for i in range(1, k + 1):
+            types.append(ObjectType(
+                type_id=i,
+                move_time=1,
+                move_cost=10.0,
+                loss_value=100.0
+            ))
+        return types
+
+    def generate_simple_test_1(self) -> dict:
+        """Простой тест 1: Два склада, два типа товаров. Штраф 0."""
+        n_warehouses, n_types = 2, 2
+        object_types = self.generate_deterministic_object_types(n_types)
+        edges = [Edge(from_id=1, to_id=2, weight=1)]
+        # Ручное наполнение: всё на своих местах
+        inventory = [
+            (1, 2, 10), # На складе 1 лежит 10 шт товара типа 2
+            (2, 1, 10), # На складе 2 лежит 10 шт товара типа 1
+        ]
+        orders = [
+            Order(order_id=1, type_k=2, quantity_t=5, warehouse_a=1), # Склад 1 просит свой товар 2
+            Order(order_id=2, type_k=1, quantity_t=5, warehouse_a=2), # Склад 2 просит свой товар 1
+            Order(order_id=3, type_k=1, quantity_t=5, warehouse_a=2), # Склад 2 просит свой товар 1
+            Order(order_id=4, type_k=2, quantity_t=5, warehouse_a=1), # Склад 1 просит свой товар 2
+        ]
+        total_objects = sum(q for _, _, q in inventory)
+        return {
+            "test_id": 7, "name": "Тест: 2 склада, 2 типа (на местах)",
+            "description": "Товар 2 на Складе 1, Товар 1 на Складе 2. Заявки соответствуют наличию. Ожидаемый штраф: 0.",
+            "object_types": object_types, "edges": edges,
+            "inventory": inventory, "orders": orders,
+            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
+        }
+
+    def generate_simple_test_2(self) -> dict:
+        """Простой тест 2: Один склад, дробление заявки. Штраф 0."""
+        n_warehouses, n_types = 1, 1
+        object_types = self.generate_deterministic_object_types(n_types)
+        edges = []
+        inventory = [(1, 1, 10)] # На складе 1 лежит 10 шт товара 1
+        orders = [
+            Order(order_id=1, type_k=1, quantity_t=9, warehouse_a=1), # Склад 1 просит 9 шт
+            Order(order_id=2, type_k=1, quantity_t=1, warehouse_a=1), # Склад 1 просит 1 шт
+        ]
+        total_objects = sum(q for _, _, q in inventory)
+        return {
+            "test_id": 8, "name": "Тест: 1 склад, 2 заявки (9+1)",
+            "description": "Проверка последовательного списания: сначала 9, потом 1 из общего запаса 10. Ожидаемый штраф: 0.",
+            "object_types": object_types, "edges": edges,
+            "inventory": inventory, "orders": orders,
+            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
+        }
+
+    def generate_simple_test_3(self) -> dict:
+        """Простой тест 3: Склад 2 сам себя обеспечивает. Штраф 0."""
+        n_warehouses, n_types = 2, 1
+        object_types = self.generate_deterministic_object_types(n_types)
+        edges = [Edge(from_id=1, to_id=2, weight=1)]
+        # Товар на Складе 2, заявка тоже на Складе 2
+        inventory = [(1, 1, 0), (2, 1, 10)]
+        orders = [Order(order_id=1, type_k=1, quantity_t=10, warehouse_a=2)]
+        total_objects = sum(q for _, _, q in inventory)
+        return {
+            "test_id": 9, "name": "Простой: Склад 2 сам себя кормит",
+            "description": "Ручной тест: товар уже на Складе 2. Штраф: 0.",
+            "object_types": object_types, "edges": edges,
+            "inventory": inventory, "orders": orders,
+            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
+        }
+
+    def generate_simple_test_4(self) -> dict:
+        """Простой тест 4: 2 склада, каждый со своим товаром. Штраф 0."""
+        n_warehouses, n_types = 2, 1
+        object_types = self.generate_deterministic_object_types(n_types)
+        edges = [Edge(from_id=1, to_id=2, weight=1)]
+        inventory = [
+            (1, 1, 10), # Товар 1 на складе 1
+            (2, 1, 10)  # Товар 1 на складе 2
+        ]
+        orders = [
+            Order(order_id=1, type_k=1, quantity_t=10, warehouse_a=1), # Склад 1 просит свой товар
+            Order(order_id=2, type_k=1, quantity_t=10, warehouse_a=2), # Склад 2 просит свой товар
+        ]
+        total_objects = sum(q for _, _, q in inventory)
+        return {
+            "test_id": 10, "name": "Простой: Свои товары локально",
+            "description": "Ручной тест: оба склада имеют товар на месте. Штраф: 0.",
+            "object_types": object_types, "edges": edges,
+            "inventory": inventory, "orders": orders,
+            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
+        }
+
+    def generate_simple_test_5(self) -> dict:
+        """Простой тест 5: Предиктивное перемещение (Ваш пример). Штраф 0."""
+        n_warehouses, n_types = 3, 1
+        object_types = self.generate_deterministic_object_types(n_types)
+        edges = [Edge(from_id=1, to_id=2, weight=1), Edge(from_id=3, to_id=2, weight=1)]
+        # Наполнение:
+        # Склад 1: 5 шт (для заявки 1)
+        # Склад 2: 10 шт (для заявки 2 не хватит 5 шт)
+        # Склад 3: 5 шт (излишек, который нужно привезти на Склад 2)
+        inventory = [
+            (1, 1, 5),
+            (2, 1, 10),
+            (3, 1, 5)
+        ]
+        orders = [
+            Order(order_id=1, type_k=1, quantity_t=5, warehouse_a=1), # Шаг 1: выполняется сразу
+            Order(order_id=2, type_k=1, quantity_t=15, warehouse_a=2), # Шаг 2: нужно 15, 10 уже есть, 5 доедет со Склада 3
+        ]
+        total_objects = sum(q for _, _, q in inventory)
+        return {
+            "test_id": 11, "name": "Простой: Предиктивная доставка",
+            "description": "Заявка 2 требует 15 шт, на складе 10. Алгоритм на шаге 1 должен довезти 5 шт со склада 3. Штраф: 0.",
+            "object_types": object_types, "edges": edges,
+            "inventory": inventory, "orders": orders,
+            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
+        }
+
+    def generate_simple_test_6(self) -> dict:
+        """Простой тест 6: Предиктивность для разных типов. Штраф 0."""
+        n_warehouses, n_types = 2, 2
+        object_types = self.generate_deterministic_object_types(n_types)
+        edges = [Edge(from_id=1, to_id=2, weight=1)]
+        # Склад 1: имеет всё
+        # Склад 2: пустой
+        inventory = [
+            (1, 1, 10),
+            (1, 2, 10),
+            (2, 1, 0),
+            (2, 2, 0)
+        ]
+        orders = [
+            Order(order_id=1, type_k=1, quantity_t=10, warehouse_a=1), # Шаг 1: выполняется сразу на месте
+            Order(order_id=2, type_k=2, quantity_t=10, warehouse_a=2), # Шаг 2: нужно привезти тип 2 на Склад 2
+        ]
+        total_objects = sum(q for _, _, q in inventory)
+        return {
+            "test_id": 12, "name": "Простой: Предиктивная ротация",
+            "description": "На шаге 1 выполняется Заявка 1, и одновременно отправляется Товар 2 на Склад 2 для Заявки 2. Штраф: 0.",
+            "object_types": object_types, "edges": edges,
+            "inventory": inventory, "orders": orders,
+            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
+        }
 
     def load_test_to_db(self, test_data: dict) -> None:
         """Загрузить тест в базу данных."""
@@ -466,139 +613,6 @@ class TestGenerator:
             self.generate_simple_test_5(),
             self.generate_simple_test_6(),
         ]
-
-    def generate_deterministic_object_types(self, k: int = 10) -> List[ObjectType]:
-        """Генерация K типов объектов с фиксированными параметрами."""
-        types = []
-        for i in range(1, k + 1):
-            types.append(ObjectType(
-                type_id=i,
-                move_time=1,
-                move_cost=10.0,
-                loss_value=100.0
-            ))
-        return types
-
-    def generate_simple_test_1(self) -> dict:
-        """Простой тест 1: Два склада, два типа товаров. Штраф 0."""
-        n_warehouses, n_types = 2, 2
-        object_types = self.generate_deterministic_object_types(n_types)
-        edges = [Edge(from_id=1, to_id=2, weight=1)]
-        # Всего по 10 штук товара каждого типа в системе
-        inventory = [
-            (1, 2, 10), # Товар 2 на складе 1
-            (2, 1, 10), # Товар 1 на складе 2
-        ]
-        orders = [
-            Order(order_id=1, type_k=2, quantity_t=5, warehouse_a=1),
-            Order(order_id=2, type_k=1, quantity_t=5, warehouse_a=2),
-            Order(order_id=3, type_k=1, quantity_t=5, warehouse_a=2),
-            Order(order_id=4, type_k=2, quantity_t=5, warehouse_a=1),
-        ]
-        total_objects = sum(q for _, _, q in inventory)
-        return {
-            "test_id": 7, "name": "Простой: 2 склада, 2 типа",
-            "description": "Ручной тест: проверка выдачи товаров со своих складов. Штраф: 0.",
-            "object_types": object_types, "edges": edges,
-            "inventory": inventory, "orders": orders,
-            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
-        }
-
-    def generate_simple_test_2(self) -> dict:
-        """Простой тест 2: Один склад, дробление заявки. Штраф 0."""
-        n_warehouses, n_types = 1, 1
-        object_types = self.generate_deterministic_object_types(n_types)
-        edges = []
-        inventory = [(1, 1, 10)]
-        orders = [
-            Order(order_id=1, type_k=1, quantity_t=9, warehouse_a=1),
-            Order(order_id=2, type_k=1, quantity_t=1, warehouse_a=1),
-        ]
-        total_objects = sum(q for _, _, q in inventory)
-        return {
-            "test_id": 8, "name": "Простой: Один склад, 2 заявки",
-            "description": "Ручной тест: дробление запаса 10 на заявки 9 и 1. Штраф: 0.",
-            "object_types": object_types, "edges": edges,
-            "inventory": inventory, "orders": orders,
-            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
-        }
-
-    def generate_simple_test_3(self) -> dict:
-        """Простой тест 3: Три склада, разные товары. Штраф 0."""
-        n_warehouses, n_types = 3, 3
-        object_types = self.generate_deterministic_object_types(n_types)
-        edges = [Edge(from_id=1, to_id=2, weight=1), Edge(from_id=2, to_id=3, weight=1)]
-        inventory = [
-            (1, 1, 10),
-            (2, 2, 10),
-            (3, 3, 10)
-        ]
-        orders = [
-            Order(order_id=1, type_k=1, quantity_t=10, warehouse_a=1),
-            Order(order_id=2, type_k=2, quantity_t=10, warehouse_a=2),
-            Order(order_id=3, type_k=3, quantity_t=10, warehouse_a=3),
-        ]
-        total_objects = sum(q for _, _, q in inventory)
-        return {
-            "test_id": 9, "name": "Простой: 3 склада, 3 товара",
-            "description": "Ручной тест: каждый склад сам обеспечивает свои заявки. Штраф: 0.",
-            "object_types": object_types, "edges": edges,
-            "inventory": inventory, "orders": orders,
-            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
-        }
-
-    def generate_simple_test_4(self) -> dict:
-        """Простой тест 4: Множественные мелкие заявки. Штраф 0."""
-        n_warehouses, n_types = 2, 1
-        object_types = self.generate_deterministic_object_types(n_types)
-        edges = [Edge(from_id=1, to_id=2, weight=1)]
-        inventory = [(1, 1, 20), (2, 1, 20)]
-        # 4 заявки по 5 штук
-        orders = [Order(order_id=i, type_k=1, quantity_t=5, warehouse_a=1 if i % 2 == 0 else 2) for i in range(1, 5)]
-        total_objects = sum(q for _, _, q in inventory)
-        return {
-            "test_id": 10, "name": "Простой: Мелкие заявки",
-            "description": "Ручной тест: серия мелких заявок на разных складах. Штраф: 0.",
-            "object_types": object_types, "edges": edges,
-            "inventory": inventory, "orders": orders,
-            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
-        }
-
-    def generate_simple_test_5(self) -> dict:
-        """Простой тест 5: Большое количество типов на одном складе. Штраф 0."""
-        n_warehouses, n_types = 1, 5
-        object_types = self.generate_deterministic_object_types(n_types)
-        edges = []
-        inventory = [(1, k, 100) for k in range(1, 6)]
-        orders = [Order(order_id=k, type_k=k, quantity_t=50, warehouse_a=1) for k in range(1, 6)]
-        total_objects = sum(q for _, _, q in inventory)
-        return {
-            "test_id": 11, "name": "Простой: 5 типов на 1 складе",
-            "description": "Ручной тест: проверка корректности работы с разными типами K на одном узле. Штраф: 0.",
-            "object_types": object_types, "edges": edges,
-            "inventory": inventory, "orders": orders,
-            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
-        }
-
-    def generate_simple_test_6(self) -> dict:
-        """Простой тест 6: Полная очистка склада. Штраф 0."""
-        n_warehouses, n_types = 2, 1
-        object_types = self.generate_deterministic_object_types(n_types)
-        edges = [Edge(from_id=1, to_id=2, weight=1)]
-        inventory = [(1, 1, 50), (2, 1, 0)]
-        # Все заявки на складе 1, чтобы штраф был 0
-        orders = [
-            Order(order_id=1, type_k=1, quantity_t=25, warehouse_a=1),
-            Order(order_id=2, type_k=1, quantity_t=25, warehouse_a=1),
-        ]
-        total_objects = sum(q for _, _, q in inventory)
-        return {
-            "test_id": 12, "name": "Простой: Полная выдача",
-            "description": "Ручной тест: выдача всего имеющегося товара в ноль. Штраф: 0.",
-            "object_types": object_types, "edges": edges,
-            "inventory": inventory, "orders": orders,
-            "n_warehouses": n_warehouses, "n_types": n_types, "total_objects": total_objects
-        }
 
     def validate_test(self, test_data: dict) -> dict:
         """Проверить корректность теста."""
