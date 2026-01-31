@@ -78,8 +78,13 @@ class Application:
         display.console.print(f"\n[bold]Валидация теста:[/bold]")
         display.console.print(f"  Объектов на складах: {validation['total_inventory']:,}")
         display.console.print(f"  Сумма заявок: {validation['total_orders']:,}")
+        
+        is_simple = test_id > 6
         if validation['all_valid']:
-            display.print_success("Тест корректен: 100 000 объектов, сумма заявок = 100 000")
+            if not is_simple:
+                display.print_success("Тест корректен: 100 000 объектов, сумма заявок = 100 000")
+            else:
+                display.print_success(f"Простой тест корректен: {validation['total_inventory']} объектов.")
         else:
             display.print_warning("Тест содержит несоответствия!")
 
@@ -316,12 +321,12 @@ class Application:
             if choice == "1":
                 self.show_all_tests_info()
             elif choice == "2":
-                test_id_str = display.get_input("Введите номер теста (1-6): ")
+                test_id_str = display.get_input("Введите номер теста (1-12): ")
                 try:
                     test_id = int(test_id_str)
                     self.load_test(test_id)
                 except ValueError:
-                    display.print_error("Введите число от 1 до 6.")
+                    display.print_error("Введите число от 1 до 12.")
             elif choice == "3":
                 self.show_graph()
             elif choice == "4":
